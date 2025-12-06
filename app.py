@@ -21,7 +21,7 @@ if st.button("🔌 Conectar a Base de Datos"):
         # 2. CONSULTA (Query)
         # OJO GARI: CAMBIA 'NombreDeTuTablaReal' POR UNA TABLA REAL (Ej: Pacientes, Citas, Agenda)
         # Usamos 'TOP 5' porque es SQL Server (no usa LIMIT)
-        query = "SELECT TOP 5 * FROM NombreDeTuTablaReal;" 
+        query = "SELECT TOP 5 * FROM dbo.Usuarios;" 
         
         # Ejecutar consulta
         df = conn.query(query, ttl=0)
