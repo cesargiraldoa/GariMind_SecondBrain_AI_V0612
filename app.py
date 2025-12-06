@@ -21,7 +21,9 @@ if st.button("🔌 Conectar a Base de Datos"):
         # 2. CONSULTA (Query)
         # OJO GARI: CAMBIA 'NombreDeTuTablaReal' POR UNA TABLA REAL (Ej: Pacientes, Citas, Agenda)
         # Usamos 'TOP 5' porque es SQL Server (no usa LIMIT)
-        query = "SELECT TOP 5 * FROM dbo.Usuarios;" 
+        # Esta consulta le pregunta al servidor su versión.
+# No requiere permisos de tabla, así que SIEMPRE funciona si hay conexión.
+query = "SELECT @@VERSION as Version;"
         
         # Ejecutar consulta
         df = conn.query(query, ttl=0)
