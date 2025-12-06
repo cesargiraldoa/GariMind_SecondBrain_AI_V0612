@@ -1,40 +1,37 @@
 import streamlit as st
 import pandas as pd
 
-# Configuración básica de la página
-st.set_page_config(page_title="Prueba SQL Server", layout="wide")
+# Configuración de página
+st.set_page_config(page_title="Prueba Técnica", layout="wide")
 
-st.title("🦷 Monitor Dentisalud - Prueba de Conexión")
+st.title("🤖 Verificación de Sistema: Dentisalud")
 st.markdown("---")
 
-st.write("Estado de la conexión: 🟡 Esperando prueba...")
+st.write("Presiona el botón para confirmar comunicación con el servidor.")
 
-# Botón para ejecutar la prueba
-if st.button("🔌 Conectar a Base de Datos"):
+# Botón de prueba
+if st.button("🔍 Verificar Conexión"):
+    # Aquí empieza el bloque de seguridad "try"
     try:
-        # 1. ESTABLECER CONEXIÓN
-        # Usamos "sql" porque en tus secrets pusiste [connections.sql]
+        # 1. Conexión (Usando la configuración de Secrets)
         conn = st.connection("sql", type="sql")
-        
-        st.info("Intentando contactar al servidor 186.180.3.170...")
+        st.info("📡 Contactando al servidor 186.180.3.170...")
 
-        # 2. CONSULTA (Query)
-        # OJO GARI: CAMBIA 'NombreDeTuTablaReal' POR UNA TABLA REAL (Ej: Pacientes, Citas, Agenda)
-        # Usamos 'TOP 5' porque es SQL Server (no usa LIMIT)
-        # Esta consulta le pregunta al servidor su versión.
-# No requiere permisos de tabla, así que SIEMPRE funciona si hay conexión.
-query = "SELECT @@VERSION as Version;"
+        # 2. Consulta de Diagnóstico 
+        # Esta consulta NO requiere permisos especiales sobre tablas.
+        # Solo le pregunta al servidor: "¿Quién eres?"
+        query = "SELECT @@VERSION as Version_SQL;"
         
-        # Ejecutar consulta
+        # 3. Ejecución
         df = conn.query(query, ttl=0)
-
-        # 3. MOSTRAR RESULTADOS
-        st.success("✅ ¡CONEXIÓN EXITOSA!")
-        st.write(f"Se encontraron {len(df)} registros de prueba:")
+        
+        # 4. Éxito
+        st.success("✅ ¡CONEXIÓN TOTALMENTE EXITOSA!")
+        st.write("El servidor respondió correctamente:")
         st.dataframe(df)
 
+    # Este es el bloque "except" que faltaba antes
     except Exception as e:
-        # Si falla, mostramos el error exacto
-        st.error("❌ Ocurrió un error al conectar")
-        st.warning("Detalle técnico del error:")
+        st.error("❌ Error en la ejecución")
+        st.warning("Detalles técnicos:")
         st.code(e)
