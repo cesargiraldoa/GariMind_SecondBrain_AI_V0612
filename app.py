@@ -1,37 +1,60 @@
 import streamlit as st
 import pandas as pd
 
-# Configuración de página
-st.set_page_config(page_title="Prueba Técnica", layout="wide")
+st.set_page_config(page_title="Explorador SQL", layout="wide")
 
-st.title("🤖 Verificación de Sistema: Dentisalud")
+st.title("🗺️ Mapa de la Base de Datos Dentisalud")
 st.markdown("---")
 
-st.write("Presiona el botón para confirmar comunicación con el servidor.")
+try:
+    # 1. CONEXIÓN
+    conn = st.connection("sql", type="sql")
+    
+    # 2. OBTENER LISTA DE TABLAS
+    # Consultamos el catálogo del sistema (INFORMATION_SCHEMA)
+    st.info("🔄 Escaneando base de datos...")
+    
+    query_mapa = """
+    SELECT 
+        TABLE_SCHEMA as Esquema, 
+        TABLE_NAME as Tabla 
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_TYPE = 'BASE TABLE'
+    ORDER BY TABLE_NAME;
+    """
+    
+    df_tablas = conn.query(query_mapa, ttl=0)
+    
+    # 3. MOSTRAR RESULTADOS
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.success(f"✅ Se encontraron {len(df_tablas)} tablas.")
+        st.dataframe(df_tablas, height=400, use_container_width=True)
 
-# Botón de prueba
-if st.button("🔍 Verificar Conexión"):
-    # Aquí empieza el bloque de seguridad "try"
-    try:
-        # 1. Conexión (Usando la configuración de Secrets)
-        conn = st.connection("sql", type="sql")
-        st.info("📡 Contactando al servidor 186.180.3.170...")
-
-        # 2. Consulta de Diagnóstico 
-        # Esta consulta NO requiere permisos especiales sobre tablas.
-        # Solo le pregunta al servidor: "¿Quién eres?"
-        query = "SELECT @@VERSION as Version_SQL;"
+    with col2:
+        st.subheader("🧪 Probador de Permisos")
+        st.write("Selecciona una tabla de la lista para intentar leerla:")
         
-        # 3. Ejecución
-        df = conn.query(query, ttl=0)
+        # Crear una lista desplegable con las tablas encontradas
+        # Creamos una lista formato "Esquema.Tabla" (ej: dbo.Pacientes)
+        lista_opciones = df_tablas["Esquema"] + "." + df_tablas["Tabla"]
+        tabla_seleccionada = st.selectbox("Selecciona tabla:", lista_opciones)
         
-        # 4. Éxito
-        st.success("✅ ¡CONEXIÓN TOTALMENTE EXITOSA!")
-        st.write("El servidor respondió correctamente:")
-        st.dataframe(df)
+        if st.button(f"🔍 Espiar {tabla_seleccionada}"):
+            try:
+                query_prueba = f"SELECT TOP 5 * FROM {tabla_seleccionada};"
+                df_preview = conn.query(query_prueba, ttl=0)
+                
+                st.balloons()
+                st.success(f"¡BINGO! Tienes acceso a '{tabla_seleccionada}'")
+                st.write("Primeras 5 filas:")
+                st.dataframe(df_preview)
+                
+            except Exception as e:
+                st.error(f"⛔ Acceso Denegado a {tabla_seleccionada}")
+                st.warning("El servidor dice: 'No tienes permiso SELECT o la tabla está vacía'")
 
-    # Este es el bloque "except" que faltaba antes
-    except Exception as e:
-        st.error("❌ Error en la ejecución")
-        st.warning("Detalles técnicos:")
-        st.code(e)
+except Exception as e:
+    st.error("❌ Error general de conexión")
+    st.code(e)
