@@ -3,5 +3,5 @@ pandas
 sqlalchemy
 pymssql
 google-genai
-google-generativeai
+google-generativeai>=0.8.3
 openpyxl
