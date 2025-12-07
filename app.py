@@ -54,38 +54,45 @@ elif pagina == "📊 Reportes Ejecutivos":
 # ==========================================
 # PÁGINA 3: MAPA DE DATOS (Tu código)
 # ==========================================
-elif pagina == "🗺️ Mapa de Datos":
-    st.title("🗺️ Mapa de la Base de Datos Dentisalud")
+import streamlit as st
+import pandas as pd
+
+st.set_page_config(page_title="Explorador SQL", layout="wide")
+st.title("🕵️ Explorador de Base de Datos")
+
+try:
+    conn = st.connection("sql", type="sql")
+    st.info("Conectado a Dentisalud")
     
-    # --- AQUÍ VA TU CÓDIGO DEL PROBADOR ---
-    try:
-        # Intento de conexión seguro
-        conn = st.connection("sql", type="sql")
+    # 1. Mapa de Tablas
+    query_mapa = """
+    SELECT TABLE_SCHEMA as Esquema, TABLE_NAME as Tabla 
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME;
+    """
+    df_tablas = conn.query(query_mapa, ttl=600)
+    
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.write("📂 **Tablas Disponibles**")
+        st.dataframe(df_tablas, use_container_width=True, height=500)
+
+    with col2:
+        st.write("🧪 **Probador de Datos**")
+        lista = df_tablas["Esquema"] + "." + df_tablas["Tabla"]
+        seleccion = st.selectbox("Elige una tabla:", lista)
         
-        # 1. Obtenemos las tablas
-        query_mapa = """
-            SELECT TABLE_SCHEMA as Esquema, TABLE_NAME as Tabla 
-            FROM INFORMATION_SCHEMA.TABLES 
-            WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME;
-        """
-        df_tablas = conn.query(query_mapa, ttl=600)
-        
-        c_izq, c_der = st.columns([1, 2])
-        
-        with c_izq:
-            st.success(f"✅ Se encontraron {len(df_tablas)} tablas.")
-            st.dataframe(df_tablas, use_container_width=True)
-            
-        with c_der:
-            st.subheader("🧪 Probador de Permisos")
-            lista_tablas = df_tablas['Esquema'] + "." + df_tablas['Tabla']
-            tabla_seleccionada = st.selectbox("Selecciona tabla:", lista_tablas)
-            
-            if st.button(f"Espiar {tabla_seleccionada}"):
-                df_preview = conn.query(f"SELECT * FROM {tabla_seleccionada} LIMIT 5;", ttl=60)
-                st.dataframe(df_preview)
-                
-    except Exception as e:
-        # Si falla la conexión, mostramos el mensaje pero NO rompemos el menú
-        st.warning("No se pudo conectar a la base de datos automáticamente.")
-        st.error(f"Error técnico: {e}")
+        if st.button(f"Ver datos de {seleccion}"):
+            try:
+                # Top 50 para no saturar
+                df = conn.query(f"SELECT TOP 50 * FROM {seleccion}", ttl=0)
+                st.success(f"✅ Acceso correcto: {len(df)} filas recuperadas")
+                st.dataframe(df)
+            except Exception as e:
+                st.error("⛔ Sin permiso o tabla vacía")
+                st.write(e)
+
+except Exception as e:
+    st.error("Error de conexión")
+    st.write(e)
