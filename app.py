@@ -1,84 +1,87 @@
 import streamlit as st
 import pandas as pd
-import requests
-import json
+import openai
 import io
 import os
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Gari Mind Directo", page_icon="🧠", layout="wide")
+# --- CONFIGURACIÓN DE LA PÁGINA ---
+st.set_page_config(page_title="Gari Mind - GPT", page_icon="🧠", layout="wide")
 st.sidebar.title("Navegación")
 pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro", "📊 Reportes", "🗺️ Mapa"])
 
-# --- FUNCIÓN INTELIGENTE (MÉTODO DIRECTO / SIN LIBRERÍA) ---
-def analizar_api_directa(df, pregunta, api_key):
+# --- FUNCIÓN INTELIGENTE (MOTOR OPENAI) ---
+def analizar_con_gpt(df, pregunta, api_key):
     """
-    Se conecta directamente a la API de Google sin usar la librería problemática.
-    Evita errores 404 y conflictos de versiones.
+    Usa OpenAI (GPT-4o) para generar código Python de análisis.
+    Envía solo la estructura (metadata), no los datos brutos.
     """
     try:
-        # 1. Preparar datos (Esquema)
+        # Configurar cliente
+        client = openai.OpenAI(api_key=api_key)
+        
+        # 1. Sacar 'radiografía' de los datos (Schema)
         buffer = io.StringIO()
         df.head(3).to_csv(buffer, index=False)
         muestra = buffer.getvalue()
         info_cols = df.dtypes.to_string()
-
-        # 2. Prompt
-        prompt = f"""
-        Actúa como experto en Pandas Python.
-        DataFrame 'df' tiene estas columnas:
+        
+        # 2. Prompt de Ingeniería para Data Science
+        prompt_system = "Eres un experto Data Scientist en Python. Tu trabajo es escribir código Pandas para responder preguntas."
+        
+        prompt_user = f"""
+        Tengo un DataFrame 'df' en memoria.
+        
+        Columnas y Tipos:
         {info_cols}
         
-        Muestra:
+        Muestra de datos:
         {muestra}
         
-        Pregunta: "{pregunta}"
+        Pregunta del usuario: "{pregunta}"
         
-        TAREA:
-        1. Genera código Python para responder usando 'df'.
-        2. Guarda la respuesta en variable 'resultado'.
-        3. Solo código, sin markdown.
+        TU TAREA:
+        1. Escribe el código Python para responder usando la variable 'df'.
+        2. El resultado final debe quedar en una variable llamada 'resultado'.
+        3. IMPORTANTE: Devuelve SOLO el código limpio. Sin markdown (```) y sin explicaciones.
         """
 
-        # 3. LLAMADA DIRECTA A LA URL (Bypassing la librería)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        # 3. Llamada a la API (GPT-4o)
+        response = client.chat.completions.create(
+            model="gpt-4o", 
+            messages=[
+                {"role": "system", "content": prompt_system},
+                {"role": "user", "content": prompt_user}
+            ],
+            temperature=0 # Temperatura 0 para máxima precisión matemática
+        )
         
-        headers = {'Content-Type': 'application/json'}
-        data = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }]
-        }
-
-        response = requests.post(url, headers=headers, data=json.dumps(data))
+        codigo = response.choices[0].message.content
         
-        if response.status_code != 200:
-            return f"Error de Google: {response.text}", ""
-
-        # 4. Extraer el código de la respuesta JSON
-        respuesta_json = response.json()
-        try:
-            texto_generado = respuesta_json['candidates'][0]['content']['parts'][0]['text']
-            codigo = texto_generado.replace("```python", "").replace("```", "").strip()
-        exceptKeyError:
-            return "La IA no devolvió código válido.", ""
-
-        # 5. Ejecutar código localmente
+        # Limpieza de seguridad
+        codigo = codigo.replace("```python", "").replace("```", "").strip()
+        
+        # 4. Ejecución Segura Local
         local_vars = {'df': df, 'pd': pd}
         exec(codigo, globals(), local_vars)
         
-        return local_vars.get('resultado', "Sin resultado"), codigo
+        return local_vars.get('resultado', "El código se ejecutó pero no generó la variable 'resultado'."), codigo
 
     except Exception as e:
-        return f"Error técnico: {str(e)}", ""
+        return f"Error OpenAI: {str(e)}", ""
 
 # --- CARGA DE DATOS ---
 @st.cache_data(ttl=600)
 def cargar_datos_simple():
     try:
         conn = st.connection("sql", type="sql")
+        # Ajusta esta query a tu tabla real si es necesario
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
+        
+        # Limpieza básica
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
+        # Asegurar formato fecha
+        df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
+        
         return df
     except Exception as e:
         return pd.DataFrame()
@@ -87,54 +90,55 @@ def cargar_datos_simple():
 # PÁGINA 1: CEREBRO
 # ==========================================
 if pagina == "🧠 Cerebro":
-    st.title("🧠 Cerebro (Conexión Directa)")
-    st.info("💡 Usando API REST directa para máxima compatibilidad.")
+    st.title("🧠 Cerebro (Motor GPT-4o)")
+    st.info("💡 Análisis potenciado por OpenAI.")
 
-    # API KEY
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key and "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    if not api_key:
-        api_key = st.text_input("Ingresa tu API Key:", type="password")
+    # 1. GESTIÓN DE API KEY (SECRETS O MANUAL)
+    # Primero buscamos en los secrets de Streamlit
+    if "OPENAI_API_KEY" in st.secrets:
+        api_key = st.secrets["OPENAI_API_KEY"]
+        usando_secrets = True
+    else:
+        # Si no está en secrets, pedimos manual
+        api_key = st.text_input("Ingresa tu OpenAI API Key (sk-...):", type="password")
+        usando_secrets = False
 
-    # DATOS
+    # 2. CARGA DE DATOS
     df = cargar_datos_simple()
     
-    if not df.empty:
-        st.success(f"Datos listos: {len(df):,} filas.")
+    if df.empty:
+        st.warning("⚠️ No hay datos. Revisa la conexión SQL.")
+    else:
+        st.success(f"✅ Datos cargados: {len(df):,} registros.")
         
         pregunta = st.text_input("Consulta:", "Cual fue el mes de mayor venta en el año 2025?")
         
         if st.button("Analizar"):
-            if api_key:
-                with st.spinner("Conectando con Google..."):
-                    res, cod = analizar_api_directa(df, pregunta, api_key)
+            if not api_key:
+                st.error("⛔ Necesitas una API Key para continuar.")
+            else:
+                with st.spinner("🧠 GPT-4o está programando la respuesta..."):
+                    res, cod = analizar_con_gpt(df, pregunta, api_key)
                     
                     st.divider()
-                    st.write("### 💡 Resultado:")
+                    st.subheader("📊 Resultado:")
                     st.write(res)
                     
-                    with st.expander("Ver código"):
+                    with st.expander("🔍 Ver código generado (Python)"):
                         st.code(cod, language='python')
-            else:
-                st.error("Falta API Key")
-    else:
-        st.warning("No hay datos cargados (Revisa SQL).")
 
 # ==========================================
-# REPORTES Y MAPA (Igual que siempre)
+# REPORTES Y MAPA (TU CÓDIGO ESTÁNDAR)
 # ==========================================
 elif pagina == "📊 Reportes":
     st.title("Reportes")
     df = cargar_datos_simple()
     if not df.empty:
-        if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
-             df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         df['Mes'] = df['Fecha'].dt.strftime('%Y-%m')
         st.bar_chart(df.groupby('Mes')['Valor'].sum())
 
 elif pagina == "🗺️ Mapa":
-    st.title("Mapa")
+    st.title("Mapa SQL")
     try:
         conn = st.connection("sql", type="sql")
         st.dataframe(conn.query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES", ttl=0))
