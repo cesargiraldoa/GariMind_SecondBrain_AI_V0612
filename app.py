@@ -3,10 +3,9 @@ import pandas as pd
 import openai
 import io
 import matplotlib.pyplot as plt
-import os
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
+st.set_page_config(page_title="Gari", layout="wide")
 
 # --- FUNCIÓN CEREBRO (GPT-4o) ---
 def analizar_con_gpt(df, pregunta, api_key):
@@ -19,24 +18,24 @@ def analizar_con_gpt(df, pregunta, api_key):
         muestra = buffer.getvalue()
         info_cols = df.dtypes.to_string()
         
-        # 2. PROMPT DE GARI (Con lógica de fecha estricta)
+        # 2. PROMPT ESTRICTO
         prompt_system = """
         Eres Gari, el segundo cerebro extendido.
         
-        REGLAS DE ORO PARA EL CÓDIGO:
-        1. La única fecha válida es la columna 'Fecha'.
-        2. El formato de 'Fecha' es DÍA-MES-AÑO.
-        3. IGNORA la columna 'FechaCargue'.
-        4. Si preguntan por el mejor mes, agrupa las ventas por mes usando 'Fecha' y devuelve el nombre del mes en ESPAÑOL.
-        5. Si no hay datos para el año pedido, imprime "No hay datos registrados para ese año".
-        6. Si piden gráfico, usa matplotlib y guarda la figura en la variable 'fig'.
+        REGLAS PARA EL CÓDIGO PYTHON:
+        1. La única fecha válida para ventas es la columna 'Fecha'.
+        2. IGNORA la columna 'FechaCargue'.
+        3. Si piden el mejor mes, agrupa por mes (usando 'Fecha') y suma el 'Valor'.
+        4. Devuelve el nombre del mes en Español.
+        5. IMPORTANTE: Primero verifica si hay datos para el año solicitado. Si el dataframe filtrado está vacío, imprime: "No hay datos registrados en la columna Fecha para este año".
+        6. Si piden gráfico, usa matplotlib y guarda la figura en 'fig'.
         """
         
         prompt_user = f"""
-        Estructura de la tabla (SQL Server):
+        Estructura de la tabla:
         {info_cols}
         
-        Muestra de datos:
+        Muestra de datos (primeras filas):
         {muestra}
         
         Pregunta: "{pregunta}"
@@ -65,85 +64,84 @@ def analizar_con_gpt(df, pregunta, api_key):
     except Exception as e:
         return f"Error técnico: {str(e)}", None, ""
 
-# --- CARGA DE DATOS SQL DIRECTA ---
-@st.cache_data(ttl=0) # ttl=0 para que NO guarde caché y traiga datos frescos siempre
+# --- CARGA DE DATOS SQL ---
+@st.cache_data(ttl=0)
 def cargar_datos_sql():
     try:
         conn = st.connection("sql", type="sql")
         # Traemos toda la tabla
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
         
-        # Limpieza y Formato
+        # Limpieza
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
-        
-        # CLAVE: Forzar formato Día-Mes-Año
+        # Forzar formato fecha Día-Mes-Año
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         
         return df
     except Exception as e:
-        st.error(f"Error conectando a la BD: {e}")
+        st.error(f"Error conectando a SQL: {e}")
         return pd.DataFrame()
 
-# --- INTERFAZ DE USUARIO ---
+# --- INTERFAZ LIMPIA ---
 
-# 1. Menú limpio (Sin íconos raros)
-menu = st.sidebar.radio("Navegación", ["Chat con Gari", "Reportes", "Mapa"])
+# Título simple (Texto)
+st.title("Hola soy Gari tu segundo cerebro extendido")
+st.write("¿Cómo te puedo ayudar hoy?")
 
-# 2. Imagen del Hámster (Gari)
-st.sidebar.image("https://img.freepik.com/premium-photo/cute-hamster-face-portrait_1029469-218417.jpg", width=150, caption="Gari 🐹")
+# Menú lateral simple
+pagina = st.sidebar.radio("Menú", ["Chat", "Reportes", "Mapa"])
 
-if menu == "Chat con Gari":
+if pagina == "Chat":
     
-    # SALUDO PERSONALIZADO
-    col1, col2 = st.columns([1, 10])
-    with col1:
-        st.image("https://img.freepik.com/premium-photo/cute-hamster-face-portrait_1029469-218417.jpg", width=80)
-    with col2:
-        st.title("Hola soy Gari tu segundo cerebro extendido")
-        st.write("¿Cómo te puedo ayudar hoy?")
-
-    # GESTIÓN API KEY
+    # API KEY
     if "OPENAI_API_KEY" in st.secrets:
         api_key = st.secrets["OPENAI_API_KEY"]
     else:
-        api_key = st.text_input("Ingresa tu API Key de OpenAI:", type="password")
+        api_key = st.text_input("Ingresa tu API Key:", type="password")
 
-    # CARGA SQL (Invisible al usuario)
+    # Carga de datos
     df = cargar_datos_sql()
     
     if not df.empty:
-        # Input de pregunta
-        pregunta = st.text_input("Escribe tu consulta:", "Cual fue el mes de mayor venta en el año 2025?")
+        # DIAGNÓSTICO DE FECHAS (Para que sepas la verdad de tus datos)
+        with st.expander("🔍 Verificar Fechas disponibles"):
+            fecha_max = df['Fecha'].max()
+            st.write(f"La fecha de venta más reciente que veo es: **{fecha_max}**")
+            
+        pregunta = st.text_input("Consulta:", "Cual fue el mes de mayor venta en el año 2025?")
         
         if st.button("Analizar"):
             if api_key:
-                with st.spinner("Gari está pensando... 🐹"):
+                with st.spinner("Analizando..."):
                     res_txt, res_fig, cod = analizar_con_gpt(df, pregunta, api_key)
                     
                     st.divider()
                     
+                    # Mostrar respuesta
                     if res_txt:
-                        st.success("Respuesta:")
+                        st.write("### Respuesta:")
                         st.write(res_txt)
-                    
+                    elif not res_fig:
+                        st.warning("El código se ejecutó pero no devolvió un resultado. Revisa si hay datos para esa fecha.")
+
+                    # Mostrar gráfico
                     if res_fig:
-                        st.write("Gráfico:")
+                        st.write("### Gráfico:")
                         st.pyplot(res_fig)
                     
+                    # Mostrar código
                     with st.expander("Ver código Python"):
                         st.code(cod, language='python')
             else:
-                st.warning("Falta la API Key")
-    else:
-        st.error("No se pudieron cargar datos desde SQL Server.")
+                st.error("Falta la API Key")
 
-elif menu == "Reportes":
+elif pagina == "Reportes":
     st.title("Reportes")
     df = cargar_datos_sql()
     if not df.empty:
         st.dataframe(df.head())
 
-elif menu == "Mapa":
+elif pagina == "Mapa":
     st.title("Mapa de Tablas")
     try:
         conn = st.connection("sql", type="sql")
