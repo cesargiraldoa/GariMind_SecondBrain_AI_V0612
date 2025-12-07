@@ -1,12 +1,57 @@
 import streamlit as st
 import pandas as pd
+import google.generativeai as genai
+import io
 import os
-from google import genai
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Gari Mind Directo", page_icon="🧠", layout="wide")
 st.sidebar.title("Navegación")
 pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro", "📊 Reportes", "🗺️ Mapa"])
+
+# --- FUNCIÓN INTELIGENTE (LA SOLUCIÓN AL ERROR 429) ---
+def analizar_con_agente(df, pregunta, api_key):
+    """
+    Genera código Python para responder preguntas sin enviar los datos brutos.
+    """
+    genai.configure(api_key=api_key)
+    
+    # 1. Sacamos la 'radiografía' de los datos (Solo estructura, no el millón de registros)
+    buffer = io.StringIO()
+    df.head(3).to_csv(buffer, index=False)
+    muestra = buffer.getvalue()
+    info_cols = df.dtypes.to_string()
+    
+    # 2. Creamos el prompt para el Agente de Código
+    prompt = f"""
+    Actúa como un experto en Python Pandas.
+    Tengo un DataFrame llamado 'df' en memoria con esta estructura:
+    {info_cols}
+    
+    Ejemplo de las primeras 3 filas:
+    {muestra}
+    
+    Pregunta del usuario: "{pregunta}"
+    
+    TU TAREA:
+    1. Escribe el código Python para calcular la respuesta usando 'df'.
+    2. Guarda el resultado final en una variable llamada 'resultado'.
+    3. NO inventes datos. NO uses pd.read_csv, usa el 'df' que ya existe.
+    4. Devuelve SOLO el código, sin explicaciones ni markdown.
+    """
+    
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        codigo = response.text.replace("```python", "").replace("```", "").strip()
+        
+        # 3. Ejecutamos el código en un entorno local seguro
+        local_vars = {'df': df, 'pd': pd}
+        exec(codigo, globals(), local_vars)
+        
+        return local_vars.get('resultado', "No se generó respuesta."), codigo
+    except Exception as e:
+        return f"Error: {e}", ""
 
 # --- CARGA DE DATOS ---
 @st.cache_data(ttl=600)
@@ -16,89 +61,71 @@ def cargar_datos_simple():
         # Traemos los datos
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
         
-        # Limpieza básica para que se entienda bien
+        # Limpieza básica
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
-        # Formato fecha corto para ahorrar espacio
-        df['Fecha'] = df['Fecha'].dt.strftime('%d/%m/%Y')
+        # Mantenemos la fecha como objeto datetime para poder filtrar, 
+        # pero creamos una columna string para visualización si quieres.
         return df
     except Exception as e:
         return pd.DataFrame()
 
 # ==========================================
-# PÁGINA 1: CEREBRO (MÉTODO DIRECTO)
+# PÁGINA 1: CEREBRO (CORREGIDO)
 # ==========================================
 if pagina == "🧠 Cerebro":
-    st.title("🧠 Cerebro (Análisis Directo)")
-    st.info("💡 Estrategia: Enviar los datos directamente a la IA para evitar errores de SQL.")
+    st.title("🧠 Cerebro (Modo Agente)")
+    st.info("💡 Estrategia: Análisis mediante generación de código (Ahorro de tokens).")
 
-    # 1. API KEY
+    # 1. API KEY (Manejo robusto)
     api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key and "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    
+    # Opción manual por si falla el entorno
     if not api_key:
-        if "GEMINI_API_KEY" in st.secrets:
-            api_key = st.secrets["GEMINI_API_KEY"]
-        else:
-            st.error("⛔ Falta la GEMINI_API_KEY.")
-            st.stop()
-            
-    client = genai.Client(api_key=api_key)
+        api_key = st.text_input("Ingresa tu API Key de Gemini:", type="password")
 
     # 2. Obtener Datos
     df = cargar_datos_simple()
     
     if df.empty:
-        st.error("No se pudieron cargar los datos de SQL Server.")
+        st.error("⚠️ No se pudieron cargar los datos de SQL Server o la tabla está vacía.")
     else:
-        st.success(f"✅ Datos cargados en memoria: {len(df)} registros.")
-        with st.expander("Ver los datos que analizará la IA"):
-            st.dataframe(df)
+        st.success(f"✅ Datos en memoria: {len(df):,} registros.")
+        
+        with st.expander("Ver muestra de datos"):
+            st.dataframe(df.head())
 
         # 3. Pregunta
         pregunta = st.text_input("Consulta:", "Dime cuál fue la sucursal con más ingresos y el total.")
         
         if st.button("Analizar con IA"):
-            with st.spinner("La IA está leyendo tus datos..."):
-                try:
-                    # Convertimos los datos a texto (CSV) para que la IA los lea
-                    # Limitamos a 200 filas por seguridad de tamaño, si tienes más, avísame.
-                    datos_txt = df.to_csv(index=False)
+            if not api_key:
+                st.error("⛔ Necesitas una API Key para continuar.")
+            else:
+                with st.spinner("🤖 El Agente está escribiendo el código de análisis..."):
+                    respuesta, codigo_usado = analizar_con_agente(df, pregunta, api_key)
                     
-                    prompt = f"""
-                    Actúa como un experto analista de datos.
-                    Responde la siguiente pregunta basándote ÚNICAMENTE en los datos que te proporciono abajo.
+                    st.divider()
+                    st.subheader("📊 Resultado:")
+                    st.write(respuesta)
                     
-                    PREGUNTA: {pregunta}
-                    
-                    DATOS (Formato CSV):
-                    {datos_txt}
-                    
-                    Instrucciones:
-                    - Responde de forma directa y ejecutiva.
-                    - Si calculas totales, menciona la cifra exacta.
-                    - Da una recomendación breve al final.
-                    """
-                    
-                    # Llamada Directa
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[prompt]
-                    )
-                    
-                    # Mostrar respuesta SIN FILTROS
-                    st.subheader("🤖 Respuesta:")
-                    st.markdown(response.text)
-                    
-                except Exception as e:
-                    st.error(f"Ocurrió un error: {e}")
+                    with st.expander("🔍 Ver código Python generado (Transparencia)"):
+                        st.code(codigo_usado, language='python')
 
 # ==========================================
-# PÁGINA 2: REPORTES
+# PÁGINA 2: REPORTES (TU CÓDIGO ORIGINAL)
 # ==========================================
 elif pagina == "📊 Reportes":
     st.title("📊 Reportes")
     df = cargar_datos_simple()
     if not df.empty:
-        df['Mes'] = pd.to_datetime(df['Fecha'], format='%d/%m/%Y').dt.strftime('%Y-%m')
+        # Aseguramos que Fecha sea datetime para extraer el mes
+        if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
+             df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
+
+        df['Mes'] = df['Fecha'].dt.strftime('%Y-%m')
         
         # Filtros
         sucursal = st.sidebar.selectbox("Sucursal", ["Todas"] + list(df['Sucursal'].unique()))
@@ -111,7 +138,7 @@ elif pagina == "📊 Reportes":
         st.bar_chart(df.groupby('Mes')['Valor'].sum())
 
 # ==========================================
-# PÁGINA 3: MAPA
+# PÁGINA 3: MAPA (TU CÓDIGO ORIGINAL)
 # ==========================================
 elif pagina == "🗺️ Mapa":
     st.title("🗺️ Mapa SQL")
