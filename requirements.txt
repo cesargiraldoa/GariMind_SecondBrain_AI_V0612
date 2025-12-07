@@ -4,3 +4,4 @@ sqlalchemy
 pymssql
 openpyxl
 openai
+matplotlib
