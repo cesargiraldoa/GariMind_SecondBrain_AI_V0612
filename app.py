@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import time
-# Nota: La librería 'plotly' fue omitida para evitar errores. 
+import os
+from google import genai
+from google.genai import types
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Gari Mind", page_icon="🧠", layout="wide")
@@ -12,26 +14,85 @@ pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro (Inicio)", "📊 Reportes Ejec
 st.sidebar.divider()
 
 # ==========================================
-# PÁGINA 1: CEREBRO (INICIO)
+# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE IA FINAL
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
+    
+    # --- Configuración del SDK ---
+    try:
+        # Busca automáticamente la clave GEMINI_API_KEY
+        client = genai.Client()
+    except Exception as e:
+        st.error(f"⛔ ERROR: No se pudo iniciar el cliente de Gemini. Asegura GEMINI_API_KEY. Detalles: {e}")
+        st.stop()
+        
+    # --- Interacción de Usuario y UI ---
     st.markdown('<div style="text-align: center; font-size: 2.5rem; color: #1E3A8A;">🧠 Gari Mind Second Brain</div>', unsafe_allow_html=True)
     st.markdown('<div style="text-align: center; color: #4B5563;">Asistente de Logística & Análisis de Datos</div>', unsafe_allow_html=True)
     st.divider()
 
-    st.write("##### 💬 Pregúntale a tus datos:")
     col_preg, col_btn = st.columns([4, 1])
     with col_preg:
-        pregunta = st.text_input("Consulta:", placeholder="Ej: ¿Cuál fue el día de mayor venta?", label_visibility="collapsed")
+        pregunta_usuario = st.text_input("Consulta:", placeholder="Ej: ¿Cuál fue el día de mayor venta?", label_visibility="collapsed")
     with col_btn:
-        if st.button("Analizar", type="primary", use_container_width=True):
-            with st.spinner('Procesando...'):
-                time.sleep(1)
-            st.success("✅ Análisis Completado")
-            # Aquí irá la lógica de LLM y el gráfico generado
+        boton_analizar = st.button("Analizar", type="primary", use_container_width=True)
+
+    # --- Lógica de Procesamiento y Llamada a la IA ---
+    if boton_analizar and pregunta_usuario:
+        
+        # 1. Definir el Esquema de la BD (Contexto para Gemini)
+        schema_info = """
+        Tabla: stg.Ingresos_Detallados
+        Columnas clave: 
+        - Fecha (string, DD/MM/YYYY): Fecha de la transacción.
+        - Valor (int): Monto del ingreso.
+        - Sucursal (string): Sede donde ocurrió la venta.
+        - Forma_de_Pago (string): Medio de pago (EFECTIVO, TARJETA, etc.)
+        
+        SINTAXIS SQL: Debes usar sintaxis T-SQL (SQL Server).
+        """
+        
+        # 2. Instrucción de Ingeniería de Prompt
+        system_prompt = f"""
+        Eres un experto analista de datos de logística y finanzas.
+        **Para responder, debes seguir 4 pasos strictos:**
+        1. **GENERACIÓN SQL:** Genera ÚNICAMENTE la consulta SQL más precisa (T-SQL) para obtener los datos. **NO INCLUYAS NINGÚN TEXTO ADICIONAL ANTES O DESPUÉS DEL CÓDIGO SQL.**
+        2. **EJECUCIÓN SQL:** (Simulado).
+        3. **ANÁLISIS:** Genera un análisis ejecutivo de alto nivel.
+        4. **RECOMENDACIÓN:** Ofrece una recomendación estratégica.
+        
+        **ESQUEMA DE BD DISPONIBLE:**
+        {schema_info}
+        """
+
+        try:
+            with st.spinner('🧠 Gari Mind está generando la consulta y analizando los datos...'):
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=[
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_text(f"Pregunta del usuario: {pregunta_usuario}")]
+                        )
+                    ],
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                    )
+                )
+
+            # 3. Mostrar Resultado Final (ASUMIENDO CONEXIÓN EXITOSA)
+            st.success("✅ Análisis Generado")
+            st.subheader("Respuesta de Gari Mind:")
+            # Muestra el texto completo de la respuesta de la IA
+            st.markdown(response.text) 
+
+        except Exception as e:
+            st.error(f"⛔ Error en la conexión con Gemini o generación de contenido. Detalles: {e}")
+            st.stop()
+
 
 # ==========================================
-# PÁGINA 2: REPORTES EJECUTIVOS (FLUJO CORREGIDO)
+# PÁGINA 2: REPORTES EJECUTIVOS (FUNCIONAL Y CORREGIDO)
 # ==========================================
 elif pagina == "📊 Reportes Ejecutivos":
     st.title("📊 Reporte de Variación de Ingresos")
@@ -52,11 +113,10 @@ elif pagina == "📊 Reportes Ejecutivos":
         
         df = conn.query(query, ttl=600)
         
-        # Procesamiento Pandas (Limpieza de datos)
+        # Procesamiento Pandas (Limpieza de datos - FIX de TypeError)
         df['fecha'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
         df.dropna(subset=['fecha'], inplace=True)
         
-        # FIX: Limpieza de Valor para resolver TypeError
         df['valor'] = pd.to_numeric(df['valor'], errors='coerce') 
         df.dropna(subset=['valor'], inplace=True) 
         
@@ -72,14 +132,13 @@ elif pagina == "📊 Reportes Ejecutivos":
     sucursales = ["Todas"] + list(df['sucursal'].unique())
     filtro_sucursal = st.sidebar.selectbox("Filtrar por Sucursal:", sucursales)
 
-    # Aplicar filtro
-    df_filtrado = df.copy() # <-- df_filtrado se define aquí
+    df_filtrado = df.copy() 
     if filtro_sucursal != "Todas":
         df_filtrado = df[df['sucursal'] == filtro_sucursal]
     # --- FIN BARRERA DE FILTRO ---
 
     # --- Lógica de Variación y KPIs ---
-    df_mensual = df_filtrado.groupby('mes_anio')['valor'].sum().reset_index() # Ahora puede usar df_filtrado
+    df_mensual = df_filtrado.groupby('mes_anio')['valor'].sum().reset_index()
     
     df_mensual['variacion_pct'] = df_mensual['valor'].pct_change() * 100
     df_mensual['variacion_pct'] = df_mensual['variacion_pct'].fillna(0)
