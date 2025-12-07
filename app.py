@@ -4,67 +4,55 @@ import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import calendar  # <--- 1. IMPORTAMOS LA HERRAMIENTA QUE FALTABA
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Gari", layout="wide")
+st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
 
-# --- FUNCIÓN CEREBRO (LÓGICA BLINDADA) ---
+# --- FUNCIÓN CEREBRO (GPT-4o) ---
 def analizar_con_gpt(df, pregunta, api_key):
     try:
         client = openai.OpenAI(api_key=api_key)
         
-        # 1. Contexto (Solo estructura)
+        # 1. Contexto
         buffer = io.StringIO()
         df.head(3).to_csv(buffer, index=False)
         muestra = buffer.getvalue()
         info_cols = df.dtypes.to_string()
         
-        # 2. PROMPT DE MÁXIMA SEGURIDAD
+        # 2. PROMPT
         prompt_system = """
-        Eres Gari, experto en Python y Data Science.
+        Eres Gari, experto en Data Science.
         
         TU MISIÓN:
-        Escribir código Python para analizar el DataFrame 'df' que YA ESTÁ EN MEMORIA.
+        Analizar el DataFrame 'df' (ya cargado) y generar 3 variables.
         
-        PROHIBICIONES ABSOLUTAS (SI LAS ROMPES, FALLAS):
-        1. PROHIBIDO crear datos ficticios (ej: data = {...}).
-        2. PROHIBIDO usar pd.DataFrame() para crear datos manuales.
-        3. PROHIBIDO usar la columna 'FechaCargue'.
+        REGLAS:
+        1. Usa la columna 'Fecha'. Ignora 'FechaCargue'.
+        2. NO inventes datos. Usa 'df'.
         
-        INSTRUCCIONES DE ANÁLISIS:
-        1. Usa la columna 'Fecha' (datetime).
-        2. Filtra el DataFrame por el año solicitado en la pregunta.
-        3. Si el DataFrame filtrado está vacío, define resultado=None y detente.
+        VARIABLES A CREAR:
+        A. 'resultado' (str): Nombre del mes con más ventas (en Español).
         
-        INSTRUCCIONES DE SALIDA (Variables a crear):
-        1. 'resultado' (str): Nombre del mes con mayor venta en ESPAÑOL.
-        
-        2. 'tabla_resultados' (DataFrame): 
-           - Agrupa por mes y suma 'Valor'.
-           - Columnas: ['Mes', 'Ventas'].
-           - ORDENAMIENTO: Debes ordenar los meses cronológicamente (Enero, Febrero, Marzo...), NO por valor.
-             * Tip: Crea una lista ordenada de meses en español y úsala para ordenar.
-        
-        3. 'fig' (matplotlib figure):
-           - Gráfico de barras de 'tabla_resultados'.
-           - Título: 'Ventas por Mes'.
-           - ETIQUETAS: Agrega el valor numérico encima de cada barra (ax.bar_label).
+        B. 'tabla_resultados' (DataFrame): 
+           - Agrupado por Mes, suma de 'Valor'.
+           - IMPORTANTE: Ordena los meses cronológicamente (Enero, Febrero...), usa la librería 'calendar' si la necesitas.
+           
+        C. 'fig' (matplotlib figure):
+           - Gráfico de barras.
+           - Etiquetas de datos encima de las barras.
            - Formato de miles en el eje Y.
         """
         
         prompt_user = f"""
-        Estructura de la tabla REAL (SQL):
-        {info_cols}
-        
-        Muestra (Solo referencia, EL DATASET COMPLETO TIENE DATOS DE 2025):
-        {muestra}
-        
+        Estructura: {info_cols}
+        Muestra: {muestra}
         Pregunta: "{pregunta}"
         
-        Genera SOLO el código Python. Confía en que 'df' tiene los datos del 2025 aunque la muestra sea vieja.
+        Genera SOLO código Python.
         """
 
-        # 3. Llamada a GPT
+        # 3. Llamada GPT
         response = client.chat.completions.create(
             model="gpt-4o", 
             messages=[
@@ -76,8 +64,9 @@ def analizar_con_gpt(df, pregunta, api_key):
         
         codigo = response.choices[0].message.content.replace("```python", "").replace("```", "").strip()
         
-        # 4. Ejecución
-        local_vars = {'df': df, 'pd': pd, 'plt': plt, 'ticker': ticker}
+        # 4. Ejecución (AQUÍ ESTÁ EL ARREGLO)
+        # Le damos permiso para usar 'calendar'
+        local_vars = {'df': df, 'pd': pd, 'plt': plt, 'ticker': ticker, 'calendar': calendar}
         exec(codigo, globals(), local_vars)
         
         return (local_vars.get('resultado', None), 
@@ -86,27 +75,22 @@ def analizar_con_gpt(df, pregunta, api_key):
                 codigo)
 
     except Exception as e:
-        return f"Error de ejecución: {str(e)}", None, None, ""
+        return f"Error en el código generado: {str(e)}", None, None, ""
 
-# --- CARGA DE DATOS SQL (SIN CACHÉ) ---
+# --- CARGA DE DATOS SQL ---
 @st.cache_data(ttl=0)
 def cargar_datos_sql():
     try:
         conn = st.connection("sql", type="sql")
-        # Traemos toda la tabla
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
-        
-        # Limpieza
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
-        # Forzar formato DD/MM/AAAA
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
-        
         return df
     except Exception as e:
         st.error(f"Error SQL: {e}")
         return pd.DataFrame()
 
-# --- INTERFAZ GARI (LIMPIA) ---
+# --- INTERFAZ GARI ---
 
 st.title("Hola soy Gari tu segundo cerebro extendido")
 st.write("### ¿Cómo te puedo ayudar hoy?")
@@ -120,12 +104,11 @@ if pagina == "Chat":
     else:
         api_key = st.text_input("Ingresa tu API Key:", type="password")
 
-    # Carga de datos REAL
-    with st.spinner("Conectando a la Base de Datos..."):
+    with st.spinner("Conectando con BD..."):
         df = cargar_datos_sql()
     
     if not df.empty:
-        # Verificación visual de fechas
+        # Confirmación visual
         fecha_max = df['Fecha'].max()
         st.caption(f"📅 Datos reales hasta: {fecha_max.strftime('%d/%m/%Y')}")
             
@@ -133,29 +116,29 @@ if pagina == "Chat":
         
         if st.button("Analizar"):
             if api_key:
-                with st.spinner("Analizando datos reales..."):
+                with st.spinner("Gari está analizando..."):
                     res_txt, res_fig, res_tabla, cod = analizar_con_gpt(df, pregunta, api_key)
                     
                     st.divider()
                     
-                    # 1. Respuesta Texto
-                    if res_txt:
+                    # 1. Respuesta
+                    if res_txt and "Error" not in str(res_txt):
                         st.success(f"📌 El mes ganador es: **{res_txt}**")
-                    else:
-                        st.warning("El código corrió pero no encontró ventas en 2025 (Filtro vacío).")
+                    elif res_txt:
+                         st.error(res_txt) # Si hay error, mostrarlo
 
-                    # 2. Tabla Ordenada
+                    # 2. Tabla
                     if res_tabla is not None:
                         st.write("### 📅 Resumen Mensual")
                         st.dataframe(res_tabla.style.format({"Ventas": "${:,.0f}"}), use_container_width=True)
 
-                    # 3. Gráfico con Etiquetas
+                    # 3. Gráfico
                     if res_fig:
                         st.write("### 📊 Gráfico")
                         st.pyplot(res_fig)
                     
-                    # 4. Código (Para verificar que NO inventó datos)
-                    with st.expander("Ver código real ejecutado"):
+                    # 4. Código
+                    with st.expander("Ver código"):
                         st.code(cod, language='python')
             else:
                 st.error("Falta API Key")
