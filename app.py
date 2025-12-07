@@ -14,12 +14,11 @@ pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro (Inicio)", "📊 Reportes Ejec
 st.sidebar.divider()
 
 # ==========================================
-# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE IA FINAL
+# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE IA FINAL Y CORREGIDA
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
     
     # --- Configuración del SDK ---
-    # Intenta inicializar el cliente, buscará la clave GEMINI_API_KEY
     try:
         client = genai.Client()
     except Exception as e:
@@ -67,14 +66,12 @@ if pagina == "🧠 Cerebro (Inicio)":
 
         try:
             with st.spinner('🧠 Gari Mind está generando la consulta y analizando los datos...'):
+                
+                # --- LLAMADA A LA API DE GEMINI (CONTENIDO SIMPLIFICADO Y CORREGIDO) ---
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=[
-                        types.Content(
-                            role="user",
-                            parts=[types.Part.from_text(f"Pregunta del usuario: {pregunta_usuario}")]
-                        )
-                    ],
+                    # FIX: Pasar el contenido como una lista de strings simple resuelve el error de "positional argument"
+                    contents=[f"Pregunta del usuario: {pregunta_usuario}"], 
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                     )
