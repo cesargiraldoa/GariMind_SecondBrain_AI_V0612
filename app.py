@@ -31,7 +31,7 @@ if pagina == "🧠 Cerebro (Inicio)":
             # Aquí irá la lógica de LLM y el gráfico generado
 
 # ==========================================
-# PÁGINA 2: REPORTES EJECUTIVOS (CORREGIDO: TypeError)
+# PÁGINA 2: REPORTES EJECUTIVOS (FLUJO CORREGIDO)
 # ==========================================
 elif pagina == "📊 Reportes Ejecutivos":
     st.title("📊 Reporte de Variación de Ingresos")
@@ -53,31 +53,37 @@ elif pagina == "📊 Reportes Ejecutivos":
         df = conn.query(query, ttl=600)
         
         # Procesamiento Pandas (Limpieza de datos)
-        # 1. Limpieza de Fecha
         df['fecha'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
         df.dropna(subset=['fecha'], inplace=True)
         
-        # 2. FIX: Convertir 'valor' a numérico forzado (resuelve TypeError)
+        # FIX: Limpieza de Valor para resolver TypeError
         df['valor'] = pd.to_numeric(df['valor'], errors='coerce') 
-        df.dropna(subset=['valor'], inplace=True) # Elimina filas sin valor numérico después de la conversión
+        df.dropna(subset=['valor'], inplace=True) 
         
         df['mes_anio'] = df['fecha'].dt.strftime('%Y-%m')
 
     except Exception as e:
-        st.error("⛔ Error al cargar los datos. Verifique la conexión o el nombre de la tabla/columnas.")
+        st.error("⛔ Error al cargar los datos.")
         st.write(e)
         st.stop()
 
-    # --- Lógica de Variación y KPIs ---
-    df_mensual = df_filtrado.groupby('mes_anio')['valor'].sum().reset_index()
-    
-    # --- ERROR SOLUCIONADO ---
-    df_mensual['variacion_pct'] = df_mensual['valor'].pct_change() * 100
-    # --- FIN DEL ERROR SOLUCIONADO ---
+    # --- BARRERA DE FILTRO (DEFINICIÓN DE df_filtrado) ---
+    st.sidebar.header("Filtros de Reporte")
+    sucursales = ["Todas"] + list(df['sucursal'].unique())
+    filtro_sucursal = st.sidebar.selectbox("Filtrar por Sucursal:", sucursales)
 
+    # Aplicar filtro
+    df_filtrado = df.copy() # <-- df_filtrado se define aquí
+    if filtro_sucursal != "Todas":
+        df_filtrado = df[df['sucursal'] == filtro_sucursal]
+    # --- FIN BARRERA DE FILTRO ---
+
+    # --- Lógica de Variación y KPIs ---
+    df_mensual = df_filtrado.groupby('mes_anio')['valor'].sum().reset_index() # Ahora puede usar df_filtrado
+    
+    df_mensual['variacion_pct'] = df_mensual['valor'].pct_change() * 100
     df_mensual['variacion_pct'] = df_mensual['variacion_pct'].fillna(0)
 
-    # --- Métricas y Gráficos (El resto del código permanece igual) ---
     total_ventas = df_filtrado['valor'].sum()
     promedio_mensual = df_mensual['valor'].mean()
     ultima_variacion = df_mensual['variacion_pct'].iloc[-1]
@@ -134,7 +140,7 @@ elif pagina == "🗺️ Mapa de Datos":
                 try:
                     df = conn.query(f"SELECT TOP 50 * FROM {seleccion}", ttl=0)
                     st.success(f"✅ Acceso correcto: {len(df)} filas recuperadas")
-                    st.balloons() # ¡Celebración activada!
+                    st.balloons() 
                     st.dataframe(df)
                 except Exception as e:
                     st.error("⛔ Sin permiso o tabla vacía")
