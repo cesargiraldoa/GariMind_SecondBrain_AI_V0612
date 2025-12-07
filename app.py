@@ -17,21 +17,77 @@ st.sidebar.divider()
 # PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE IA FINAL
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
-    import os
-    st.title("Diagnóstico de API Key")
     
-    # Intenta leer la clave que necesita la librería
-    api_key_status = os.getenv("GEMINI_API_KEY")
-
-    if api_key_status and len(api_key_status) > 10:
-        st.success("✅ ¡CLAVE ENCONTRADA Y CONFIGURADA!")
-        st.write("Ahora que el secreto está cargado, volvamos al código de la IA.")
-    else:
-        st.error("⛔ ERROR CRÍTICO: LA CLAVE DE API NO ESTÁ CARGADA EN EL ENTORNO.")
-        st.warning("Debe verificar que la variable de entorno o el secreto de Streamlit (secrets.toml) esté nombrado **GEMINI_API_KEY** y contenga el valor correcto.")
-
+    # --- Configuración del SDK ---
+    # Intenta inicializar el cliente, buscará la clave GEMINI_API_KEY
+    try:
+        client = genai.Client()
+    except Exception as e:
+        st.error(f"⛔ ERROR: No se pudo iniciar el cliente de Gemini. Asegura GEMINI_API_KEY. Detalles: {e}")
+        st.stop()
+        
+    # --- Interacción de Usuario y UI ---
+    st.markdown('<div style="text-align: center; font-size: 2.5rem; color: #1E3A8A;">🧠 Gari Mind Second Brain</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align: center; color: #4B5563;">Asistente de Logística & Análisis de Datos</div>', unsafe_allow_html=True)
     st.divider()
-    st.code(f"Valor leído de la variable GEMINI_API_KEY: {api_key_status[:5]}...{api_key_status[-5:] if api_key_status else 'VACÍO'}")
+
+    col_preg, col_btn = st.columns([4, 1])
+    with col_preg:
+        pregunta_usuario = st.text_input("Consulta:", placeholder="Ej: ¿Cuál fue el día de mayor venta?", label_visibility="collapsed")
+    with col_btn:
+        boton_analizar = st.button("Analizar", type="primary", use_container_width=True)
+
+    # --- Lógica de Procesamiento y Llamada a la IA ---
+    if boton_analizar and pregunta_usuario:
+        
+        # 1. Definir el Esquema de la BD (Contexto para Gemini)
+        schema_info = """
+        Tabla: stg.Ingresos_Detallados
+        Columnas clave: 
+        - Fecha (string, DD/MM/YYYY): Fecha de la transacción.
+        - Valor (int): Monto del ingreso.
+        - Sucursal (string): Sede donde ocurrió la venta.
+        - Forma_de_Pago (string): Medio de pago (EFECTIVO, TARJETA, etc.)
+        
+        SINTAXIS SQL: Debes usar sintaxis T-SQL (SQL Server).
+        """
+        
+        # 2. Instrucción de Ingeniería de Prompt
+        system_prompt = f"""
+        Eres un experto analista de datos de logística y finanzas.
+        **Para responder, debes seguir 4 pasos strictos:**
+        1. **GENERACIÓN SQL:** Genera ÚNICAMENTE la consulta SQL más precisa (T-SQL) para obtener los datos. **NO INCLUYAS NINGÚN TEXTO ADICIONAL ANTES O DESPUÉS DEL CÓDIGO SQL.**
+        2. **EJECUCIÓN SQL:** (Simulado).
+        3. **ANÁLISIS:** Genera un análisis ejecutivo de alto nivel.
+        4. **RECOMENDACIÓN:** Ofrece una recomendación estratégica.
+        
+        **ESQUEMA DE BD DISPONIBLE:**
+        {schema_info}
+        """
+
+        try:
+            with st.spinner('🧠 Gari Mind está generando la consulta y analizando los datos...'):
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=[
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_text(f"Pregunta del usuario: {pregunta_usuario}")]
+                        )
+                    ],
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                    )
+                )
+
+            # 3. Mostrar Resultado Final
+            st.success("✅ Análisis Generado")
+            st.subheader("Respuesta de Gari Mind:")
+            st.markdown(response.text) 
+
+        except Exception as e:
+            st.error(f"⛔ Error en la conexión con Gemini o generación de contenido. Detalles: {e}")
+            st.stop()
 
 
 # ==========================================
