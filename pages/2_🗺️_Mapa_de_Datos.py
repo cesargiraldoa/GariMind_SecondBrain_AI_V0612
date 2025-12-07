@@ -41,3 +41,18 @@ try:
 except Exception as e:
     st.error("Error de conexión")
     st.write(e)
+with col2:
+    st.write("🧪 **Probador de Datos**")
+    lista = df_tablas["Esquema"] + "." + df_tablas["Tabla"]
+    seleccion = st.selectbox("Elige una tabla:", lista)
+    
+    if st.button(f"Ver datos de {seleccion}"):
+        try:
+            # Top 50 para no saturar
+            df = conn.query(f"SELECT TOP 50 * FROM {seleccion}", ttl=0)
+            st.success(f"✅ Acceso correcto: {len(df)} filas recuperadas")
+            st.balloons() # <<< LÍNEA AGREGADA PARA LA CELEBRACIÓN 🎉
+            st.dataframe(df)
+        except Exception as e:
+            st.error("⛔ Sin permiso o tabla vacía")
+            st.write(e)
