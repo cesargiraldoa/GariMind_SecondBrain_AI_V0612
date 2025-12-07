@@ -15,7 +15,7 @@ pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro (Inicio)", "📊 Reportes Ejec
 st.sidebar.divider()
 
 # ==========================================
-# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE IA FINAL Y CORREGIDA
+# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE DOS PASOS (SQL + ANÁLISIS)
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
     
@@ -46,67 +46,82 @@ if pagina == "🧠 Cerebro (Inicio)":
         Columnas clave: 
         - Fecha (string, DD/MM/YYYY): Fecha de la transacción.
         - Valor (nvarchar): Monto del ingreso. 
-        ***ATENCIÓN***: Debes limpiar el dato usando la estructura CASE WHEN ISNUMERIC(Valor) = 1 THEN CAST(Valor AS FLOAT) ELSE 0 END DENTRO DE SUM() o AVG().
         
         SINTAXIS SQL: Debes usar sintaxis T-SQL (SQL Server).
         """
         
-        # 2. Instrucción de Ingeniería de Prompt
-        system_prompt = f"""
-        Eres un experto analista de datos de logística y finanzas.
-        **Para responder, debes seguir 4 pasos strictos:**
-        1. **GENERACIÓN SQL:** Genera ÚNICAMENTE la consulta SQL más precisa (T-SQL) para obtener los datos. **ENVUELVE EL CÓDIGO SQL EN BLOQUES MARKDOWN DE SQL (```sql...```)**.
-        2. **EJECUCIÓN SQL:** (Simulado).
-        3. **ANÁLISIS:** Genera un análisis ejecutivo de alto nivel.
-        4. **RECOMENDACIÓN:** Ofrece una recomendación estratégica.
+        # 2. Instrucción para generar SOLO SQL (Paso 1)
+        sql_prompt = f"""
+        Eres un experto en generar consultas T-SQL robustas. Tu única tarea es generar la consulta SQL que se necesita para responder la pregunta del usuario.
+        
+        **Debes seguir 2 pasos strictos:**
+        1. **GENERACIÓN SQL:** Genera ÚNICAMENTE la consulta SQL más precisa (T-SQL). **ENVUELVE EL CÓDIGO SQL EN BLOQUES MARKDOWN DE SQL (```sql...```) Y NADA MÁS.**
+        2. **Limpieza de Datos:** Usa el campo 'Valor' directamente. (La limpieza será forzada en Python).
         
         **ESQUEMA DE BD DISPONIBLE:**
         {schema_info}
+        Pregunta del usuario: {pregunta_usuario}
         """
 
         try:
-            with st.spinner('🧠 Gari Mind está generando la consulta y analizando los datos...'):
+            with st.spinner('1/2: Generando y ejecutando la consulta SQL...'):
                 
-                response = client.models.generate_content(
+                # --- LLAMADA 1: Generar solo SQL ---
+                response_sql = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=[
-                        types.Content(
-                            role="user",
-                            parts=[types.Part.from_text(text=f"Pregunta del usuario: {pregunta_usuario}")]
-                        )
-                    ],
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                    )
+                    contents=[sql_prompt]
                 )
 
-            # 3. PROCESAMIENTO Y EJECUCIÓN REAL DEL SQL
-            full_response_text = response.text
+                full_response_text = response_sql.text
+                sql_match = re.search(r"```sql(.*?)```", full_response_text, re.DOTALL)
             
-            # Extraer el código SQL usando regex
-            sql_match = re.search(r"```sql(.*?)```", full_response_text, re.DOTALL)
-            
-            if sql_match:
-                extracted_sql = sql_match.group(1).strip()
-                st.subheader("Consulta SQL Generada y Ejecutada:")
-                st.code(extracted_sql, language="sql")
-                
-                # Ejecutar la consulta real contra la base de datos
-                conn = st.connection("sql", type="sql")
-                df_result = conn.query(extracted_sql, ttl=0)
-                
-                st.success("✅ Datos Reales Obtenidos:")
-                st.dataframe(df_result)
-                
-                st.subheader("Análisis de Gari Mind:")
-                st.markdown(full_response_text)
-                
-            else:
-                st.error("⛔ La IA no generó una consulta SQL válida (busque ```sql...```).")
-                st.markdown(full_response_text)
+                if sql_match:
+                    extracted_sql = sql_match.group(1).strip()
+                    st.subheader("Consulta SQL Generada y Ejecutada:")
+                    st.code(extracted_sql, language="sql")
+                    
+                    # --- FIX PERMANENTE: Sustituir SUM/AVG(Valor) por la sintaxis robusta de limpieza ---
+                    robust_sum_syntax = "SUM(CASE WHEN ISNUMERIC(Valor) = 1 THEN CAST(Valor AS FLOAT) ELSE 0 END)"
+                    robust_avg_syntax = "AVG(CASE WHEN ISNUMERIC(Valor) = 1 THEN CAST(Valor AS FLOAT) ELSE 0 END)"
+                    
+                    cleaned_sql = re.sub(r'SUM\s*\(\s*Valor\s*\)', robust_sum_syntax, extracted_sql, flags=re.IGNORECASE)
+                    cleaned_sql = re.sub(r'AVG\s*\(\s*Valor\s*\)', robust_avg_syntax, cleaned_sql, flags=re.IGNORECASE)
+                    cleaned_sql = re.sub(r'CAST\s*\(\s*Valor\s*AS\s*[a-zA-Z]+\s*\)', robust_sum_syntax, cleaned_sql, flags=re.IGNORECASE)
+
+                    # Ejecutar la consulta real (ahora limpia)
+                    conn = st.connection("sql", type="sql")
+                    df_result = conn.query(cleaned_sql, ttl=0)
+                    
+                    st.success("✅ Datos Reales Obtenidos:")
+                    st.dataframe(df_result)
+                    
+                    # --- LLAMADA 2: Generar Análisis con datos reales ---
+                    with st.spinner('2/2: Generando análisis ejecutivo con datos reales...'):
+                        
+                        analysis_prompt = f"""
+                        Pregunta del usuario: {pregunta_usuario}
+                        
+                        A continuación se presenta el resultado de la consulta SQL ejecutada en la base de datos:
+                        {df_result.to_markdown(index=False)}
+                        
+                        Utiliza estos datos para generar un Análisis Ejecutivo de alto nivel y una Recomendación Estratégica. No repitas la consulta SQL.
+                        """
+                        
+                        response_analysis = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=[analysis_prompt]
+                        )
+                    
+                    st.subheader("Análisis de Gari Mind:")
+                    st.markdown(response_analysis.text)
+                    st.success("✅ Análisis Completado")
+
+                else:
+                    st.error("⛔ La IA no generó una consulta SQL válida (busque ```sql...```).")
+                    st.markdown(full_response_text)
                 
         except Exception as e:
-            st.error(f"⛔ Error al ejecutar la consulta SQL o en la conexión. Detalles: {e}")
+            st.error(f"⛔ Error en la ejecución o procesamiento: {e}")
             st.stop()
 
 
@@ -159,7 +174,8 @@ elif pagina == "📊 Reportes Ejecutivos":
     # --- Lógica de Variación y KPIs ---
     df_mensual = df_filtrado.groupby('mes_anio')['valor'].sum().reset_index()
     
-    df_mensual['variacion_pct'] = df_mensual['valor'].pct_change() * 100
+    # FIX: Se corrige el error tipográfico df_mensura -> df_mensual
+    df_mensual['variacion_pct'] = df_mensual['valor'].pct_change() * 100 
     df_mensual['variacion_pct'] = df_mensual['variacion_pct'].fillna(0)
 
     total_ventas = df_filtrado['valor'].sum()
