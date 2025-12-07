@@ -32,6 +32,7 @@ try:
                 # Top 50 para no saturar
                 df = conn.query(f"SELECT TOP 50 * FROM {seleccion}", ttl=0)
                 st.success(f"✅ Acceso correcto: {len(df)} filas recuperadas")
+                st.balloons()
                 st.dataframe(df)
             except Exception as e:
                 st.error("⛔ Sin permiso o tabla vacía")
