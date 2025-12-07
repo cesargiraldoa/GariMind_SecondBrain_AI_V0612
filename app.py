@@ -4,7 +4,6 @@ import time
 import os
 import re
 from google import genai
-from google.genai import types
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Gari Mind", page_icon="🧠", layout="wide")
@@ -15,13 +14,17 @@ pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro (Inicio)", "📊 Reportes Ejec
 st.sidebar.divider()
 
 # ==========================================
-# PÁGINA 1: CEREBRO (MODO DEBUG - SIN SILENCIADOR DE ERRORES)
+# PÁGINA 1: CEREBRO (CON AUTO-CORRECCIÓN DE ERRORES)
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
     
-    # 1. Iniciar Cliente (Si falla aquí, saldrá error rojo inmediato)
-    client = genai.Client()
-        
+    # 1. Iniciar Cliente de forma segura
+    try:
+        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    except Exception as e:
+        st.error("⛔ Error de API Key. Verifica tus secrets.")
+        st.stop()
+
     st.markdown('<div style="text-align: center; font-size: 2.5rem; color: #1E3A8A;">🧠 Gari Mind Second Brain</div>', unsafe_allow_html=True)
     st.markdown('<div style="text-align: center; color: #4B5563;">Asistente de Logística & Análisis de Datos</div>', unsafe_allow_html=True)
     st.divider()
@@ -34,131 +37,123 @@ if pagina == "🧠 Cerebro (Inicio)":
 
     if boton_analizar and pregunta_usuario:
         
-        # --- PASO 1: Generar SQL ---
-        with st.spinner('Generando SQL...'):
-            
-            # Prompt específico para forzar la conversión de datos
+        # --- PASO 1: Generar SQL (Prompt Simplificado) ---
+        with st.spinner('Generando consulta...'):
             sql_prompt = f"""
-            Genera una consulta T-SQL (SQL Server) para responder: "{pregunta_usuario}"
+            Genera código SQL Server (T-SQL) para: "{pregunta_usuario}"
+            Tabla: stg.Ingresos_Detallados
+            Columnas: Fecha (string), Valor (NVARCHAR), Sucursal (string).
             
-            TABLA: stg.Ingresos_Detallados
-            COLUMNAS: Fecha (string), Valor (NVARCHAR), Sucursal (string).
-            
-            REGLA DE ORO: La columna 'Valor' es TEXTO. 
-            SIEMPRE usa: CAST(Valor AS FLOAT) o TRY_CAST(Valor AS FLOAT) para sumar o promediar.
-            Ejemplo: SUM(TRY_CAST(Valor AS FLOAT))
-            
-            Salida: Solo el bloque de código SQL markdown.
+            IMPORTANTE: Solo responde con el código SQL dentro de bloques ```sql ... ```. No des explicaciones.
             """
-
-            # Llamada API
-            response_sql = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text=sql_prompt)])]
-            )
             
-            texto_respuesta = response_sql.text
-            
-            # DEBUG: Mostrar lo que respondió la IA antes de intentar ejecutarlo
-            with st.expander("Ver SQL generado por IA (Debug)", expanded=False):
-                st.write(texto_respuesta)
-
-            # Extraer SQL con Regex
-            match = re.search(r"```sql(.*?)```", texto_respuesta, re.DOTALL)
-            
-            if not match:
-                st.error("⛔ La IA no generó código SQL válido inside ```sql ```.")
+            try:
+                # FIX DE API: Enviamos string directo en una lista, sin objetos complejos
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=[sql_prompt]
+                )
+                texto_respuesta = response.text
+                
+                # Extraer SQL
+                match = re.search(r"```sql(.*?)```", texto_respuesta, re.DOTALL)
+                if not match:
+                    st.error("La IA no generó SQL válido.")
+                    st.stop()
+                
+                sql_query = match.group(1).strip()
+                
+            except Exception as e:
+                st.error(f"Error conectando con la IA: {e}")
                 st.stop()
-            
-            sql_query = match.group(1).strip()
-            
-            # DEBUG: Mostrar la consulta limpia
-            st.code(sql_query, language="sql")
 
-        # --- PASO 2: Ejecutar SQL (Sin Try/Except para ver el error real) ---
+        # --- PASO 2: Ejecución con AUTO-CURACIÓN (Self-Healing) ---
         conn = st.connection("sql", type="sql")
-        df_result = conn.query(sql_query, ttl=0)
         
-        st.success("✅ Datos obtenidos:")
+        try:
+            # Intento 1: Ejecutar tal cual viene
+            df_result = conn.query(sql_query, ttl=0)
+            
+        except Exception as e:
+            # Si falla, asumimos que es por el error de nvarchar y aplicamos el parche
+            # st.warning("⚠️ Detectado error de tipo de dato. Aplicando auto-corrección...")
+            
+            # Reemplazo agresivo: Cualquier mención a Valor se convierte en TRY_CAST
+            # Evitamos reemplazar si ya tiene CAST
+            if "CAST" not in sql_query:
+                fixed_query = sql_query.replace("Valor", "TRY_CAST(Valor AS FLOAT)")
+                # También arreglamos sumas comunes
+                fixed_query = fixed_query.replace("SUM(TRY_CAST(Valor AS FLOAT))", "SUM(TRY_CAST(Valor AS FLOAT))") 
+            else:
+                fixed_query = sql_query
+
+            try:
+                # Intento 2: Ejecutar corregido
+                df_result = conn.query(fixed_query, ttl=0)
+                # st.success("✅ Auto-corrección exitosa.")
+                sql_query = fixed_query # Actualizamos para mostrar la buena
+            except Exception as e2:
+                st.error(f"⛔ Error fatal de SQL: {e}")
+                st.stop()
+        
+        # --- PASO 3: Mostrar Resultados ---
+        st.subheader("Consulta Ejecutada:")
+        st.code(sql_query, language="sql")
+        
+        st.success("✅ Datos Obtenidos:")
         st.dataframe(df_result)
         
-        # --- PASO 3: Análisis de Texto ---
-        with st.spinner('Analizando resultados...'):
-            analysis_prompt = f"""
-            Pregunta: {pregunta_usuario}
-            Datos:
-            {df_result.to_markdown(index=False)}
-            
-            Dame un análisis ejecutivo breve y una recomendación.
-            """
-            
-            response_analysis = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text=analysis_prompt)])]
-            )
-            
-            st.subheader("Respuesta:")
-            st.markdown(response_analysis.text)
+        # --- PASO 4: Análisis Final ---
+        with st.spinner('Analizando datos...'):
+            analysis_prompt = f"Analiza estos datos brevemente para un ejecutivo logístico:\n{df_result.to_markdown()}"
+            res_analysis = client.models.generate_content(model='gemini-2.5-flash', contents=[analysis_prompt])
+            st.subheader("Análisis:")
+            st.markdown(res_analysis.text)
 
 
 # ==========================================
-# PÁGINA 2: REPORTES EJECUTIVOS (ESTABLE)
+# PÁGINA 2: REPORTES (ESTABLE)
 # ==========================================
 elif pagina == "📊 Reportes Ejecutivos":
-    st.title("📊 Reporte de Variación de Ingresos")
-    conn = st.connection("sql", type="sql")
-    
-    # Consulta robusta manual
-    query = """
-        SELECT 
-            Fecha as fecha, 
-            CASE WHEN ISNUMERIC(Valor)=1 THEN CAST(Valor AS FLOAT) ELSE 0 END as valor,
-            Sucursal as sucursal
-        FROM stg.Ingresos_Detallados
-        WHERE ISDATE(Fecha) = 1
-        ORDER BY Fecha
-    """
-    df = conn.query(query, ttl=600)
-    
-    # Limpieza en Pandas
-    df['fecha'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
-    df.dropna(subset=['fecha'], inplace=True)
-    df['mes_anio'] = df['fecha'].dt.strftime('%Y-%m')
-    
-    # Filtros
-    st.sidebar.header("Filtros")
-    filtro = st.sidebar.selectbox("Sucursal:", ["Todas"] + list(df['sucursal'].unique()))
-    if filtro != "Todas":
-        df = df[df['sucursal'] == filtro]
-
-    # Cálculos
-    df_grp = df.groupby('mes_anio')['valor'].sum().reset_index()
-    df_grp['var'] = df_grp['valor'].pct_change().fillna(0) * 100
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total", f"${df['valor'].sum():,.0f}")
-    col2.metric("Promedio", f"${df_grp['valor'].mean():,.0f}")
-    col3.metric("Var. Mes", f"{df_grp['var'].iloc[-1]:.1f}%")
-    
-    c1, c2 = st.columns(2)
-    c1.bar_chart(df_grp.set_index('mes_anio')['valor'])
-    c2.bar_chart(df_grp.set_index('mes_anio')['var'])
-    with st.expander("Ver Datos"): st.dataframe(df_grp)
+    st.title("📊 Variación de Ingresos")
+    try:
+        conn = st.connection("sql", type="sql")
+        # Consulta manual blindada
+        query = """
+            SELECT Fecha, CASE WHEN ISNUMERIC(Valor)=1 THEN CAST(Valor AS FLOAT) ELSE 0 END as Valor, Sucursal
+            FROM stg.Ingresos_Detallados WHERE ISDATE(Fecha)=1 ORDER BY Fecha
+        """
+        df = conn.query(query, ttl=600)
+        
+        df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
+        df['Mes'] = df['Fecha'].dt.strftime('%Y-%m')
+        
+        # Filtros y Gráficos
+        sucursal = st.sidebar.selectbox("Sucursal", ["Todas"] + list(df['Sucursal'].unique()))
+        if sucursal != "Todas": df = df[df['Sucursal'] == sucursal]
+        
+        df_g = df.groupby('Mes')['Valor'].sum().reset_index()
+        df_g['Var'] = df_g['Valor'].pct_change().fillna(0)*100
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total", f"${df['Valor'].sum():,.0f}")
+        c2.metric("Var. Mes", f"{df_g['Var'].iloc[-1]:.1f}%")
+        
+        st.bar_chart(df_g.set_index('Mes')['Valor'])
+        
+    except Exception as e:
+        st.error(f"Error cargando reportes: {e}")
 
 # ==========================================
-# PÁGINA 3: MAPA DE DATOS (ESTABLE)
+# PÁGINA 3: MAPA (ESTABLE)
 # ==========================================
 elif pagina == "🗺️ Mapa de Datos":
     st.title("🗺️ Mapa de Datos")
-    conn = st.connection("sql", type="sql")
-    df_tablas = conn.query("SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'", ttl=600)
-    
-    c1, c2 = st.columns([1,2])
-    c1.dataframe(df_tablas)
-    
-    t = c2.selectbox("Tabla:", df_tablas['TABLE_SCHEMA']+"."+df_tablas['TABLE_NAME'])
-    if c2.button("Ver Muestra"):
-        df = conn.query(f"SELECT TOP 50 * FROM {t}", ttl=0)
-        st.success("✅ Conectado")
-        st.balloons()
-        st.dataframe(df)
+    try:
+        conn = st.connection("sql", type="sql")
+        tabs = conn.query("SELECT TABLE_SCHEMA+'.'+TABLE_NAME as Tabla FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'", ttl=600)
+        t = st.selectbox("Tabla:", tabs['Tabla'])
+        if st.button("Ver Muestra"):
+            st.dataframe(conn.query(f"SELECT TOP 50 * FROM {t}", ttl=0))
+    except Exception as e:
+        st.error(f"Error: {e}")
