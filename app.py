@@ -8,6 +8,9 @@ st.set_page_config(
     initial_sidebar_state="expanded" # La barra lateral inicia abierta
 )
 
+st.sidebar.success("✅ Menú activado")
+st.sidebar.write("---")
+
 # --- Estilos CSS personalizados (Opcional: para darle estética moderna) ---
 st.markdown("""
     <style>
