@@ -19,32 +19,40 @@ def analizar_con_gpt(df, pregunta, api_key):
         muestra = buffer.getvalue()
         info_cols = df.dtypes.to_string()
         
-        # 2. PROMPT DE GARI (Instrucciones para Tabla y Gráfico)
+        # 2. PROMPT DE GARI (INSTRUCCIONES EN ESPAÑOL Y ORDEN)
         prompt_system = """
         Eres Gari, el segundo cerebro extendido.
         
-        REGLAS:
-        1. Usa solo la columna 'Fecha' (datetime). Ignora 'FechaCargue'.
-        2. Filtra por el año pedido. Si no hay datos, detente.
+        REGLAS PARA EL CÓDIGO PYTHON:
+        1. Usa la columna 'Fecha'. Ignora 'FechaCargue'.
+        2. Filtra por el año pedido. Si df queda vacío, detente.
         
-        3. OUTPUTS REQUERIDOS:
-           A. Variable 'resultado': Nombre del mes ganador (String).
+        3. INSTRUCCIONES DE SALIDA:
+           A. Variable 'resultado': Nombre del mes con más ventas (String en Español).
            
-           B. Variable 'tabla_resultados': DataFrame con columnas ['Mes', 'Ventas'].
-              - IMPORTANTE: Ordena esta tabla por CALENDARIO (Enero primero, luego Febrero...), no por valor de venta.
+           B. Variable 'tabla_resultados': 
+              - Agrupa por mes y suma 'Valor'.
+              - Crea un DataFrame con columnas ['Mes', 'Ventas'].
+              - IMPORTANTE: La columna 'Mes' debe ser en ESPAÑOL (Enero, Febrero...) y estar ordenada por calendario (no alfabético).
+              - Usa un diccionario: {1: 'Enero', 2: 'Febrero'...} para mapear el número de mes.
            
            C. Variable 'fig': Gráfico de barras (matplotlib).
-              - Título: 'Ventas por Mes'.
-              - Eje Y con formato de miles.
-              - ETIQUETAS: Usa ax.bar_label(container, fmt='${:,.0f}') para poner el valor ENCIMA de cada barra.
+              - Eje X: Meses en Español.
+              - Eje Y: Ventas.
+              - AGREGA ETIQUETAS DE DATOS: Usa ax.bar_label(bars, fmt='${:,.0f}') para poner el valor encima de las barras.
+              - Rota las etiquetas del eje X.
         """
         
         prompt_user = f"""
-        Tabla: {info_cols}
-        Muestra: {muestra}
+        Datos (SQL):
+        {info_cols}
+        
+        Muestra:
+        {muestra}
+        
         Pregunta: "{pregunta}"
         
-        TAREA: Genera SOLO código Python para crear 'resultado', 'tabla_resultados' y 'fig'.
+        TAREA: Genera SOLO el código Python.
         """
 
         # 3. Llamada GPT
@@ -84,7 +92,7 @@ def cargar_datos_sql():
         st.error(f"Error SQL: {e}")
         return pd.DataFrame()
 
-# --- INTERFAZ (LIMPIA Y SIN IMÁGENES) ---
+# --- INTERFAZ ---
 
 st.title("Hola soy Gari tu segundo cerebro extendido")
 st.write("### ¿Cómo te puedo ayudar hoy?")
@@ -102,9 +110,9 @@ if pagina == "Chat":
         df = cargar_datos_sql()
     
     if not df.empty:
-        # Info discreta de fecha
+        # Info discreta
         fecha_max = df['Fecha'].max()
-        st.caption(f"📅 Datos actualizados hasta: {fecha_max.strftime('%d/%m/%Y')}")
+        st.caption(f"📅 Datos disponibles hasta: {fecha_max.strftime('%d/%m/%Y')}")
             
         pregunta = st.text_input("Consulta:", "Cual fue el mes de mayor venta en el año 2025?")
         
@@ -117,19 +125,18 @@ if pagina == "Chat":
                     
                     # 1. Respuesta Texto
                     if res_txt:
-                        st.success(f"📌 El mes de mayor venta fue: **{res_txt}**")
+                        st.success(f"📌 El mes ganador fue: **{res_txt}**")
                     else:
-                        st.warning("No se encontraron datos para responder.")
+                        st.warning("No encontré datos para responder esa fecha.")
 
-                    # 2. Tabla (Nueva función)
+                    # 2. Tabla (Nueva sección)
                     if res_tabla is not None:
-                        st.write("### 📅 Detalle Mensual")
-                        # Formato bonito de moneda
+                        st.write("### 📅 Resumen Mensual")
                         st.dataframe(res_tabla.style.format({"Ventas": "${:,.0f}"}), use_container_width=True)
 
-                    # 3. Gráfico con Etiquetas
+                    # 3. Gráfico
                     if res_fig:
-                        st.write("### 📊 Gráfico")
+                        st.write("### 📊 Gráfico Detallado")
                         st.pyplot(res_fig)
                     
                     # 4. Código
