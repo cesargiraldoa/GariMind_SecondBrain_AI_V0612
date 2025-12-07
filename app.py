@@ -1,159 +1,137 @@
 import streamlit as st
 import pandas as pd
-import sqlite3 # Base de datos local para datos limpios
+import sqlite3
 import os
 import re
 from google import genai
 from google.genai import types
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
+# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Gari Mind", page_icon="🧠", layout="wide")
-
-# --- MENÚ LATERAL ---
 st.sidebar.title("Navegación")
 pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro (Inicio)", "📊 Reportes Ejecutivos", "🗺️ Mapa de Datos"])
 st.sidebar.divider()
 
+# Función para cargar y LIMPIAR los datos (El Preprocesamiento que pediste)
+@st.cache_data(ttl=600)
+def obtener_datos_limpios():
+    try:
+        # 1. Conectar a SQL Server original
+        conn = st.connection("sql", type="sql")
+        # Traemos todo como texto para evitar errores de conversión en el servidor
+        df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
+        
+        # 2. PREPROCESAMIENTO (La clave de la solución)
+        # Forzar conversión de VALOR a NÚMERO (lo que falle se vuelve 0)
+        df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
+        
+        # Forzar conversión de FECHA (dd/mm/yyyy)
+        df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
+        
+        return df
+    except Exception as e:
+        st.error(f"Error descargando datos: {e}")
+        return pd.DataFrame()
+
 # ==========================================
-# PÁGINA 1: CEREBRO (ESTRATEGIA MOTOR LOCAL)
+# PÁGINA 1: CEREBRO (MOTOR DE DATOS LIMPIOS)
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
     
-    # Configuración API
+    # Configurar API Key
     try:
         client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-    except Exception as e:
-        st.error(f"⛔ Error API: {e}")
+    except:
+        st.error("Falta GEMINI_API_KEY en secrets.")
         st.stop()
 
     st.markdown('<div style="text-align: center; font-size: 2.5rem; color: #1E3A8A;">🧠 Gari Mind Second Brain</div>', unsafe_allow_html=True)
-    st.divider()
+    st.info("💡 Este sistema ahora descarga los datos, corrige los tipos (Valor a número, Fecha a fecha) y permite a la IA consultar la versión limpia.")
 
-    # --- CARGA Y PREPROCESAMIENTO DE DATOS (LA SOLUCIÓN DEFINITIVA) ---
-    @st.cache_data(ttl=600) # Guardamos esto en memoria para no recargar a cada rato
-    def cargar_datos_limpios():
-        try:
-            # 1. Traemos los datos crudos del SQL Server
-            conn = st.connection("sql", type="sql")
-            df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
-            
-            # 2. PREPROCESAMIENTO EN PYTHON (Aquí arreglamos el nvarchar)
-            # Forzamos conversión a número. Lo que no sea número se vuelve 0.
-            df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
-            # Forzamos conversión a fecha.
-            df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
-            
-            return df
-        except Exception as e:
-            return None
-
-    # Cargamos los datos limpios
-    df_clean = cargar_datos_limpios()
-
-    if df_clean is None:
-        st.error("Error conectando a la base de datos original.")
-        st.stop()
-
-    # 3. CREAMOS UN MOTOR SQL LOCAL (SQLite) CON LOS DATOS LIMPIOS
-    # Esto permite que la IA haga SQL sobre datos perfectos
-    conn_mem = sqlite3.connect(':memory:', check_same_thread=False)
-    df_clean.to_sql('ingresos', conn_mem, index=False, if_exists='replace')
-
-    # --- INTERFAZ ---
-    col_preg, col_btn = st.columns([4, 1])
-    with col_preg:
-        pregunta_usuario = st.text_input("Consulta:", placeholder="Ej: ¿Cuál fue el día de mayor venta?", label_visibility="collapsed")
-    with col_btn:
-        boton_analizar = st.button("Analizar", type="primary", use_container_width=True)
-
-    if boton_analizar and pregunta_usuario:
+    # 1. Cargar y Limpiar
+    df_clean = obtener_datos_limpios()
+    
+    if not df_clean.empty:
+        # 2. Crear Base de Datos Temporal en Memoria (SQLite)
+        # Esto nos permite usar SQL sobre los datos YA LIMPIOS
+        conn_mem = sqlite3.connect(':memory:', check_same_thread=False)
+        df_clean.to_sql('ventas', conn_mem, index=False, if_exists='replace')
         
-        with st.spinner('Analizando datos limpios...'):
-            # Prompt para la IA (Ahora consulta SQLite, que es más simple)
-            sql_prompt = f"""
-            Genera una consulta SQL (compatible con SQLite) para responder: "{pregunta_usuario}"
-            
-            TABLA: ingresos
-            COLUMNAS: 
-             - Fecha (DATETIME)
-             - Valor (FLOAT) -> YA ES NÚMERO, PUEDES SUMAR DIRECTAMENTE.
-             - Sucursal (TEXT)
-            
-            IMPORTANTE:
-            - Para fechas usa strftime si necesitas mes/año (ej: strftime('%Y-%m', Fecha))
-            - Responde SOLO con el código SQL dentro de ```sql ... ```.
-            """
-            
-            try:
-                # 1. Generar SQL
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=[sql_prompt]
-                )
-                
-                # Extraer SQL
-                match = re.search(r"```sql(.*?)```", response.text, re.DOTALL)
-                if match:
-                    sql_query = match.group(1).strip()
-                    st.code(sql_query, language="sql")
-                    
-                    # 2. Ejecutar en el MOTOR LOCAL (No en el servidor sucio)
-                    df_result = pd.read_sql_query(sql_query, conn_mem)
-                    
-                    st.success("✅ Resultados:")
-                    st.dataframe(df_result)
-                    
-                    # 3. Análisis
-                    analysis_prompt = f"Analiza estos datos brevemente: {pregunta_usuario}\n\n{df_result.to_markdown()}"
-                    res_analysis = client.models.generate_content(model='gemini-2.5-flash', contents=[analysis_prompt])
-                    st.markdown(res_analysis.text)
-                else:
-                    st.error("No se generó SQL válido.")
-                    st.write(response.text)
-                    
-            except Exception as e:
-                st.error(f"Error en análisis: {e}")
+        col_preg, col_btn = st.columns([4, 1])
+        with col_preg:
+            pregunta = st.text_input("Consulta:", placeholder="Ej: Comparar ingresos de Kennedy vs La Playa")
+        with col_btn:
+            btn = st.button("Analizar", type="primary", use_container_width=True)
 
+        if btn and pregunta:
+            with st.spinner("Analizando datos limpios..."):
+                # Prompt adaptado para SQLite (el motor en memoria)
+                prompt = f"""
+                Eres un experto en SQL. Genera una consulta SQL (Syntax SQLite) para: "{pregunta}"
+                
+                Tabla: ventas
+                Columnas: 
+                 - Fecha (DATETIME)
+                 - Valor (FLOAT) -> YA ES NUMÉRICO, PUEDES SUMAR DIRECTAMENTE.
+                 - Sucursal (TEXT)
+                
+                IMPORTANTE:
+                - SQLite usa strftime('%Y-%m', Fecha) para mes.
+                - Responde SOLO el código SQL dentro de ```sql ... ```.
+                """
+                
+                try:
+                    # Generar SQL
+                    res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt])
+                    match = re.search(r"```sql(.*?)```", res.text, re.DOTALL)
+                    
+                    if match:
+                        sql = match.group(1).strip()
+                        st.code(sql, language="sql")
+                        
+                        # Ejecutar en memoria (Datos Limpios)
+                        df_res = pd.read_sql_query(sql, conn_mem)
+                        st.success("✅ Resultados:")
+                        st.dataframe(df_result := df_res) # Asignación walrus para usar después
+                        
+                        # Análisis final
+                        res_txt = client.models.generate_content(
+                            model='gemini-2.5-flash', 
+                            contents=[f"Analiza esto: {pregunta}\n\n{df_result.to_markdown()}"]
+                        )
+                        st.markdown(res_txt.text)
+                    else:
+                        st.error("No se generó SQL válido.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 # ==========================================
-# PÁGINA 2: REPORTES (CON DATOS LIMPIOS)
+# PÁGINA 2: REPORTES (USANDO DATOS LIMPIOS)
 # ==========================================
 elif pagina == "📊 Reportes Ejecutivos":
     st.title("📊 Variación de Ingresos")
     
-    # Reusamos la lógica de limpieza para los gráficos también
-    conn = st.connection("sql", type="sql")
-    df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=600)
+    df = obtener_datos_limpios() # Reutilizamos la función de limpieza
     
-    # Preprocesamiento
-    df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
-    df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
-    df.dropna(subset=['Fecha'], inplace=True)
-    df['Mes'] = df['Fecha'].dt.strftime('%Y-%m')
-    
-    # Filtros
-    sucursales = ["Todas"] + list(df['Sucursal'].unique())
-    filtro = st.sidebar.selectbox("Sucursal:", sucursales)
-    
-    if filtro != "Todas":
-        df = df[df['Sucursal'] == filtro]
+    if not df.empty:
+        df['Mes'] = df['Fecha'].dt.strftime('%Y-%m')
         
-    # KPI
-    total = df['Valor'].sum()
-    
-    df_grp = df.groupby('Mes')['Valor'].sum().reset_index()
-    df_grp['Var'] = df_grp['Valor'].pct_change().fillna(0)*100
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total", f"${total:,.0f}")
-    c2.metric("Promedio", f"${df_grp['Valor'].mean():,.0f}")
-    c3.metric("Última Var.", f"{df_grp['Var'].iloc[-1]:.1f}%")
-    
-    st.bar_chart(df_grp.set_index('Mes')['Valor'])
-    with st.expander("Ver Datos"): st.dataframe(df_grp)
+        sucursal = st.sidebar.selectbox("Sucursal", ["Todas"] + list(df['Sucursal'].unique()))
+        if sucursal != "Todas": df = df[df['Sucursal'] == sucursal]
+        
+        df_grp = df.groupby('Mes')['Valor'].sum().reset_index()
+        df_grp['Var'] = df_grp['Valor'].pct_change().fillna(0)*100
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total", f"${df['Valor'].sum():,.0f}")
+        c2.metric("Promedio", f"${df_grp['Valor'].mean():,.0f}")
+        c3.metric("Última Var.", f"{df_grp['Var'].iloc[-1]:.1f}%")
+        
+        st.bar_chart(df_grp.set_index('Mes')['Valor'])
+        with st.expander("Ver Datos"): st.dataframe(df_grp)
 
 # ==========================================
-# PÁGINA 3: MAPA (ESTABLE)
+# PÁGINA 3: MAPA (DIRECTO)
 # ==========================================
 elif pagina == "🗺️ Mapa de Datos":
     st.title("🗺️ Mapa de Datos")
