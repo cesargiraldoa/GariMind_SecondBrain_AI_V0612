@@ -15,7 +15,7 @@ pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro (Inicio)", "📊 Reportes Ejec
 st.sidebar.divider()
 
 # ==========================================
-# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE DOS PASOS (SQL + ANÁLISIS)
+# PÁGINA 1: CEREBRO (INICIO) - VERSIÓN FINAL ROBUSTA
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
     
@@ -37,109 +37,121 @@ if pagina == "🧠 Cerebro (Inicio)":
     with col_btn:
         boton_analizar = st.button("Analizar", type="primary", use_container_width=True)
 
-    # --- Lógica de Procesamiento y Llamada a la IA ---
+    # --- Lógica de Procesamiento ---
     if boton_analizar and pregunta_usuario:
         
-        # 1. Definir el Esquema de la BD (Contexto para Gemini)
+        # 1. Definición del Esquema (Prompt)
         schema_info = """
         Tabla: stg.Ingresos_Detallados
         Columnas clave: 
         - Fecha (string, DD/MM/YYYY): Fecha de la transacción.
-        - Valor (nvarchar): Monto del ingreso. 
+        - Valor (nvarchar): Monto del ingreso. CONTIENE NÚMEROS PERO ES TIPO TEXTO.
+        - Sucursal (string): Sede.
         
-        SINTAXIS SQL: Debes usar sintaxis T-SQL (SQL Server).
+        SINTAXIS SQL: T-SQL (SQL Server).
+        IMPORTANTE: NO intentes convertir el Valor en el SQL, usa 'Valor' normalmente. Python lo corregirá.
         """
         
-        # 2. Instrucción para generar SOLO SQL (Paso 1)
         sql_prompt = f"""
-        Eres un experto en generar consultas T-SQL robustas. Tu única tarea es generar la consulta SQL que se necesita para responder la pregunta del usuario.
+        Genera ÚNICAMENTE la consulta SQL (T-SQL) para esta pregunta.
+        Usa la columna 'Valor' para sumas o promedios.
         
-        **Debes seguir 2 pasos strictos:**
-        1. **GENERACIÓN SQL:** Genera ÚNICAMENTE la consulta SQL más precisa (T-SQL). **ENVUELVE EL CÓDIGO SQL EN BLOQUES MARKDOWN DE SQL (```sql...```) Y NADA MÁS.**
-        2. **Limpieza de Datos:** Usa el campo 'Valor' directamente. (La limpieza será forzada en Python).
+        **REGLAS:**
+        1. Envuelve el SQL en un bloque markdown: ```sql ... ```
+        2. NO expliques nada. Solo código.
         
-        **ESQUEMA DE BD DISPONIBLE:**
-        {schema_info}
-        Pregunta del usuario: {pregunta_usuario}
+        Esquema: {schema_info}
+        Pregunta: {pregunta_usuario}
         """
 
         try:
-            with st.spinner('1/2: Generando y ejecutando la consulta SQL...'):
+            with st.spinner('1/2: Generando consulta SQL...'):
                 
-                # --- LLAMADA 1: Generar solo SQL ---
+                # --- LLAMADA API (Paso 1: SQL) ---
                 response_sql = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=[sql_prompt]
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=sql_prompt)])]
                 )
 
                 full_response_text = response_sql.text
+                # Extraer SQL
                 sql_match = re.search(r"```sql(.*?)```", full_response_text, re.DOTALL)
             
                 if sql_match:
-                    extracted_sql = sql_match.group(1).strip()
-                    st.subheader("Consulta SQL Generada y Ejecutada:")
-                    st.code(extracted_sql, language="sql")
+                    raw_sql = sql_match.group(1).strip()
                     
-                    # --- FIX PERMANENTE: Sustituir SUM/AVG(Valor) por la sintaxis robusta de limpieza ---
-                    robust_sum_syntax = "SUM(CASE WHEN ISNUMERIC(Valor) = 1 THEN CAST(Valor AS FLOAT) ELSE 0 END)"
-                    robust_avg_syntax = "AVG(CASE WHEN ISNUMERIC(Valor) = 1 THEN CAST(Valor AS FLOAT) ELSE 0 END)"
+                    # --- CIRUGÍA DE CÓDIGO SQL (El Fix Definitivo) ---
+                    # Esta expresión regular busca: SUM( [cualquier cosa] Valor ) y lo reemplaza por la versión segura.
+                    # Captura casos como: SUM(Valor), SUM([Valor]), SUM(t.Valor), SUM(stg.Ingresos.Valor)
                     
-                    cleaned_sql = re.sub(r'SUM\s*\(\s*Valor\s*\)', robust_sum_syntax, extracted_sql, flags=re.IGNORECASE)
-                    cleaned_sql = re.sub(r'AVG\s*\(\s*Valor\s*\)', robust_avg_syntax, cleaned_sql, flags=re.IGNORECASE)
-                    cleaned_sql = re.sub(r'CAST\s*\(\s*Valor\s*AS\s*[a-zA-Z]+\s*\)', robust_sum_syntax, cleaned_sql, flags=re.IGNORECASE)
+                    robust_cast = "CAST(CASE WHEN ISNUMERIC(Valor) = 1 THEN Valor ELSE 0 END AS FLOAT)"
+                    
+                    # 1. Reemplazo inteligente de SUM(...)
+                    # Busca SUM seguido de paréntesis, opcionalmente alias/corchetes, palabra Valor, cierre paréntesis
+                    pattern_sum = r"SUM\s*\(\s*(?:[\w\[\]]+\.)?\[?Valor\]?\s*\)"
+                    cleaned_sql = re.sub(pattern_sum, f"SUM({robust_cast})", raw_sql, flags=re.IGNORECASE)
 
-                    # Ejecutar la consulta real (ahora limpia)
+                    # 2. Reemplazo inteligente de AVG(...)
+                    pattern_avg = r"AVG\s*\(\s*(?:[\w\[\]]+\.)?\[?Valor\]?\s*\)"
+                    cleaned_sql = re.sub(pattern_avg, f"AVG({robust_cast})", cleaned_sql, flags=re.IGNORECASE)
+                    
+                    # 3. Reemplazo para ORDER BY Valor (si intenta ordenar por texto)
+                    # Si ordena por SUM(Valor), el paso 1 ya lo arregló. Si ordena por Valor directo:
+                    pattern_order = r"ORDER BY\s+(?:[\w\[\]]+\.)?\[?Valor\]?"
+                    cleaned_sql = re.sub(pattern_order, f"ORDER BY {robust_cast}", cleaned_sql, flags=re.IGNORECASE)
+
+                    st.subheader("Consulta Ejecutada (Corregida automáticamente):")
+                    st.code(cleaned_sql, language="sql")
+                    
+                    # Ejecutar SQL Limpio
                     conn = st.connection("sql", type="sql")
                     df_result = conn.query(cleaned_sql, ttl=0)
                     
                     st.success("✅ Datos Reales Obtenidos:")
                     st.dataframe(df_result)
                     
-                    # --- LLAMADA 2: Generar Análisis con datos reales ---
-                    with st.spinner('2/2: Generando análisis ejecutivo con datos reales...'):
-                        
+                    # --- LLAMADA API (Paso 2: Análisis) ---
+                    with st.spinner('2/2: Analizando datos...'):
                         analysis_prompt = f"""
-                        Pregunta del usuario: {pregunta_usuario}
-                        
-                        A continuación se presenta el resultado de la consulta SQL ejecutada en la base de datos:
+                        Pregunta: {pregunta_usuario}
+                        Datos reales:
                         {df_result.to_markdown(index=False)}
                         
-                        Utiliza estos datos para generar un Análisis Ejecutivo de alto nivel y una Recomendación Estratégica. No repitas la consulta SQL.
+                        Genera un Análisis Ejecutivo y Recomendación breve.
                         """
-                        
                         response_analysis = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=[analysis_prompt]
+                            contents=[types.Content(role="user", parts=[types.Part.from_text(text=analysis_prompt)])]
                         )
                     
                     st.subheader("Análisis de Gari Mind:")
                     st.markdown(response_analysis.text)
-                    st.success("✅ Análisis Completado")
 
                 else:
-                    st.error("⛔ La IA no generó una consulta SQL válida (busque ```sql...```).")
-                    st.markdown(full_response_text)
+                    st.error("⛔ La IA no generó SQL válido.")
+                    st.text(full_response_text)
                 
         except Exception as e:
-            st.error(f"⛔ Error en la ejecución o procesamiento: {e}")
+            st.error(f"⛔ Error: {e}")
+            st.info("Intenta reformular la pregunta o verifica que la base de datos esté activa.")
             st.stop()
 
 
 # ==========================================
-# PÁGINA 2: REPORTES EJECUTIVOS (FUNCIONAL)
+# PÁGINA 2: REPORTES EJECUTIVOS (CORREGIDA)
 # ==========================================
 elif pagina == "📊 Reportes Ejecutivos":
     st.title("📊 Reporte de Variación de Ingresos")
-    st.info("Reporte basado en la tabla 'stg.Ingresos_Detallados'.")
+    st.info("Reporte basado en 'stg.Ingresos_Detallados'")
 
-    # --- Conexión y Query SQL ---
     try:
         conn = st.connection("sql", type="sql")
         
+        # SQL Manual corregido con CAST para evitar el error nvarchar
         query = """
             SELECT 
                 Fecha as fecha, 
-                Valor as valor,
+                CASE WHEN ISNUMERIC(Valor) = 1 THEN CAST(Valor AS FLOAT) ELSE 0 END as valor,
                 Sucursal as sucursal
             FROM stg.Ingresos_Detallados
             ORDER BY Fecha
@@ -147,99 +159,58 @@ elif pagina == "📊 Reportes Ejecutivos":
         
         df = conn.query(query, ttl=600)
         
-        # Procesamiento Pandas (Limpieza de datos - FIX de TypeError)
         df['fecha'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
         df.dropna(subset=['fecha'], inplace=True)
-        
-        df['valor'] = pd.to_numeric(df['valor'], errors='coerce') 
-        df.dropna(subset=['valor'], inplace=True) 
-        
         df['mes_anio'] = df['fecha'].dt.strftime('%Y-%m')
 
     except Exception as e:
-        st.error("⛔ Error al cargar los datos.")
+        st.error("⛔ Error al cargar datos.")
         st.write(e)
         st.stop()
 
-    # --- BARRERA DE FILTRO (DEFINICIÓN DE df_filtrado) ---
-    st.sidebar.header("Filtros de Reporte")
+    st.sidebar.header("Filtros")
     sucursales = ["Todas"] + list(df['sucursal'].unique())
-    filtro_sucursal = st.sidebar.selectbox("Filtrar por Sucursal:", sucursales)
+    filtro = st.sidebar.selectbox("Sucursal:", sucursales)
 
-    df_filtrado = df.copy() 
-    if filtro_sucursal != "Todas":
-        df_filtrado = df[df['sucursal'] == filtro_sucursal]
-    # --- FIN BARRERA DE FILTRO ---
+    df_filt = df.copy()
+    if filtro != "Todas":
+        df_filt = df[df['sucursal'] == filtro]
 
-    # --- Lógica de Variación y KPIs ---
-    df_mensual = df_filtrado.groupby('mes_anio')['valor'].sum().reset_index()
-    
-    # FIX: Se corrige el error tipográfico df_mensura -> df_mensual
-    df_mensual['variacion_pct'] = df_mensual['valor'].pct_change() * 100 
-    df_mensual['variacion_pct'] = df_mensual['variacion_pct'].fillna(0)
-
-    total_ventas = df_filtrado['valor'].sum()
-    promedio_mensual = df_mensual['valor'].mean()
-    ultima_variacion = df_mensual['variacion_pct'].iloc[-1]
+    df_grp = df_filt.groupby('mes_anio')['valor'].sum().reset_index()
+    df_grp['var_pct'] = df_grp['valor'].pct_change().fillna(0) * 100
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Ingresos Totales", f"${total_ventas:,.0f}")
-    col2.metric("Promedio Mensual", f"${promedio_mensual:,.0f}")
-    col3.metric("Variación Último Mes", f"{ultima_variacion:.1f}%", delta=f"{ultima_variacion:.1f}%")
+    col1.metric("Total Ingresos", f"${df_filt['valor'].sum():,.0f}")
+    col2.metric("Promedio Mes", f"${df_grp['valor'].mean():,.0f}")
+    col3.metric("Última Var.", f"{df_grp['var_pct'].iloc[-1]:.1f}%")
 
     st.divider()
-
     c1, c2 = st.columns(2)
+    c1.subheader("Tendencia ($)")
+    c1.bar_chart(df_grp.set_index('mes_anio')['valor'])
+    c2.subheader("Variación (%)")
+    c2.bar_chart(df_grp.set_index('mes_anio')['var_pct'])
 
-    with c1:
-        st.subheader("Tendencia de Ingresos ($)")
-        st.bar_chart(df_mensual.set_index('mes_anio')['valor'])
-
-    with c2:
-        st.subheader("Variación Porcentual (%)")
-        st.bar_chart(df_mensual.set_index('mes_anio')['variacion_pct'])
-
-    with st.expander("Ver tabla de datos detallada"):
-        st.dataframe(df_mensual)
 
 # ==========================================
-# PÁGINA 3: MAPA DE DATOS (FUNCIONAL)
+# PÁGINA 3: MAPA DE DATOS
 # ==========================================
 elif pagina == "🗺️ Mapa de Datos":
-    st.title("🗺️ Mapa de la Base de Datos Dentisalud")
-    st.subheader("🕵️ Explorador de Base de Datos")
-
+    st.title("🗺️ Mapa de Datos")
     try:
         conn = st.connection("sql", type="sql")
+        df_tablas = conn.query("SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'", ttl=600)
         
-        query_mapa = """
-        SELECT TABLE_SCHEMA as Esquema, TABLE_NAME as Tabla 
-        FROM INFORMATION_SCHEMA.TABLES 
-        WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME;
-        """
-        df_tablas = conn.query(query_mapa, ttl=600)
+        c1, c2 = st.columns([1,2])
+        c1.dataframe(df_tablas)
         
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            st.write("📂 **Tablas Disponibles**")
-            st.dataframe(df_tablas, use_container_width=True, height=500)
-
-        with col2:
-            st.write("🧪 **Probador de Datos**")
-            lista = df_tablas["Esquema"] + "." + df_tablas["Tabla"]
-            seleccion = st.selectbox("Elige una tabla:", lista)
+        tabla = c2.selectbox("Tabla:", df_tablas['TABLE_SCHEMA'] + "." + df_tablas['TABLE_NAME'])
+        if c2.button("Ver Muestra"):
+            # Usamos TOP 50 porque es SQL Server
+            df = conn.query(f"SELECT TOP 50 * FROM {tabla}", ttl=0)
+            st.success(f"✅ {len(df)} filas")
+            st.balloons()
+            st.dataframe(df)
             
-            if st.button(f"Ver datos de {seleccion}"):
-                try:
-                    df = conn.query(f"SELECT TOP 50 * FROM {seleccion}", ttl=0)
-                    st.success(f"✅ Acceso correcto: {len(df)} filas recuperadas")
-                    st.balloons() 
-                    st.dataframe(df)
-                except Exception as e:
-                    st.error("⛔ Sin permiso o tabla vacía")
-                    st.write(e)
-
     except Exception as e:
-        st.error("Error de conexión")
-        st.write(e)
+        st.error(f"Error: {e}")
