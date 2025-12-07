@@ -45,9 +45,8 @@ if pagina == "🧠 Cerebro (Inicio)":
         Tabla: stg.Ingresos_Detallados
         Columnas clave: 
         - Fecha (string, DD/MM/YYYY): Fecha de la transacción.
-        - Valor (nvarchar): Monto del ingreso. ***ATENCIÓN: DEBES USAR CAST(Valor AS FLOAT) DENTRO DE SUM() o AVG().***
-        - Sucursal (string): Sede donde ocurrió la venta.
-        - Forma_de_Pago (string): Medio de pago (EFECTIVO, TARJETA, etc.)
+        - Valor (nvarchar): Monto del ingreso. 
+        ***ATENCIÓN***: Debes limpiar el dato usando la estructura CASE WHEN ISNUMERIC(Valor) = 1 THEN CAST(Valor AS FLOAT) ELSE 0 END DENTRO DE SUM() o AVG().
         
         SINTAXIS SQL: Debes usar sintaxis T-SQL (SQL Server).
         """
@@ -92,6 +91,7 @@ if pagina == "🧠 Cerebro (Inicio)":
                 st.subheader("Consulta SQL Generada y Ejecutada:")
                 st.code(extracted_sql, language="sql")
                 
+                # Ejecutar la consulta real contra la base de datos
                 conn = st.connection("sql", type="sql")
                 df_result = conn.query(extracted_sql, ttl=0)
                 
