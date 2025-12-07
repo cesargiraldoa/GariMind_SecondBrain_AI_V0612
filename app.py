@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
+# Nota: La librería 'plotly' fue omitida para evitar errores. 
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Gari Mind", page_icon="🧠", layout="wide")
@@ -15,7 +16,7 @@ st.sidebar.divider()
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
     st.markdown('<div style="text-align: center; font-size: 2.5rem; color: #1E3A8A;">🧠 Gari Mind Second Brain</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align: center; color: #4B5563;">Asistente de Logística 4.0 & Análisis de Datos</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align: center; color: #4B5563;">Asistente de Logística & Análisis de Datos</div>', unsafe_allow_html=True)
     st.divider()
 
     st.write("##### 💬 Pregúntale a tus datos:")
@@ -26,73 +27,120 @@ if pagina == "🧠 Cerebro (Inicio)":
         if st.button("Analizar", type="primary", use_container_width=True):
             with st.spinner('Procesando...'):
                 time.sleep(1)
-            st.success("Análisis completado")
+            st.success("✅ Análisis Completado")
+            # Aquí irá la lógica de LLM y el gráfico generado
 
 # ==========================================
-# PÁGINA 2: REPORTES EJECUTIVOS
+# PÁGINA 2: REPORTES EJECUTIVOS (FINALIZADA)
 # ==========================================
 elif pagina == "📊 Reportes Ejecutivos":
-    st.title("📊 Reportes de Variación")
-    st.info("Vista preliminar (Sin librería Plotly para evitar errores)")
-    
-    # Métricas clave
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Ventas Totales", "$120M", "+12%")
-    c2.metric("Promedio Mes", "$10M", "-2%")
-    c3.metric("Objetivo", "85%", "Cumplido")
-    
-    st.divider()
-    
-    # Gráfico simple nativo (No falla nunca)
-    st.subheader("Tendencia de Ventas")
-    datos_simulados = pd.DataFrame({
-        'Mes': ['Ene', 'Feb', 'Mar', 'Abr', 'May'],
-        'Ventas': [100, 120, 90, 110, 130]
-    })
-    st.bar_chart(datos_simulados.set_index('Mes'))
+    st.title("📊 Reporte de Variación de Ingresos")
+    st.info("Reporte basado en la tabla 'stg.Ingresos_Detallados'.")
 
-# ==========================================
-# PÁGINA 3: MAPA DE DATOS (Tu código)
-# ==========================================
-import streamlit as st
-import pandas as pd
-
-st.set_page_config(page_title="Explorador SQL", layout="wide")
-st.title("🕵️ Explorador de Base de Datos")
-
-try:
-    conn = st.connection("sql", type="sql")
-    st.info("Conectado a Dentisalud")
-    
-    # 1. Mapa de Tablas
-    query_mapa = """
-    SELECT TABLE_SCHEMA as Esquema, TABLE_NAME as Tabla 
-    FROM INFORMATION_SCHEMA.TABLES 
-    WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME;
-    """
-    df_tablas = conn.query(query_mapa, ttl=600)
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.write("📂 **Tablas Disponibles**")
-        st.dataframe(df_tablas, use_container_width=True, height=500)
-
-    with col2:
-        st.write("🧪 **Probador de Datos**")
-        lista = df_tablas["Esquema"] + "." + df_tablas["Tabla"]
-        seleccion = st.selectbox("Elige una tabla:", lista)
+    # --- Conexión y Query SQL (Usando las columnas: Fecha y Valor) ---
+    try:
+        conn = st.connection("sql", type="sql")
         
-        if st.button(f"Ver datos de {seleccion}"):
-            try:
-                # Top 50 para no saturar
-                df = conn.query(f"SELECT TOP 50 * FROM {seleccion}", ttl=0)
-                st.success(f"✅ Acceso correcto: {len(df)} filas recuperadas")
-                st.dataframe(df)
-            except Exception as e:
-                st.error("⛔ Sin permiso o tabla vacía")
-                st.write(e)
+        query = """
+            SELECT 
+                Fecha as fecha, 
+                Valor as valor,
+                Sucursal as sucursal
+            FROM stg.Ingresos_Detallados
+            ORDER BY Fecha
+        """
+        
+        df = conn.query(query, ttl=600)
+        
+        # Procesamiento Pandas (Asegurar formato DD/MM/YYYY)
+        df['fecha'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
+        df.dropna(subset=['fecha'], inplace=True)
+        
+        df['mes_anio'] = df['fecha'].dt.strftime('%Y-%m')
 
-except Exception as e:
-    st.error("Error de conexión")
-    st.write(e)
+    except Exception as e:
+        st.error("⛔ Error al cargar los datos. Verifique la conexión o el nombre de la tabla/columnas.")
+        st.write(e)
+        st.stop()
+
+    # --- Barra Lateral: Filtros ---
+    st.sidebar.header("Filtros de Reporte")
+    sucursales = ["Todas"] + list(df['sucursal'].unique())
+    filtro_sucursal = st.sidebar.selectbox("Filtrar por Sucursal:", sucursales)
+
+    # Aplicar filtro
+    df_filtrado = df.copy()
+    if filtro_sucursal != "Todas":
+        df_filtrado = df[df['sucursal'] == filtro_sucursal]
+
+    # --- Lógica de Variación y KPIs ---
+    df_mensual = df_filtrado.groupby('mes_anio')['valor'].sum().reset_index()
+    df_mensual['variacion_pct'] = df_mensual['valor'].pct_change() * 100
+    df_mensual['variacion_pct'] = df_mensual['variacion_pct'].fillna(0)
+
+    total_ventas = df_filtrado['valor'].sum()
+    promedio_mensual = df_mensual['valor'].mean()
+    ultima_variacion = df_mensual['variacion_pct'].iloc[-1]
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Ingresos Totales", f"${total_ventas:,.0f}")
+    col2.metric("Promedio Mensual", f"${promedio_mensual:,.0f}")
+    col3.metric("Variación Último Mes", f"{ultima_variacion:.1f}%", delta=f"{ultima_variacion:.1f}%")
+
+    st.divider()
+
+    # --- Gráficos ---
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.subheader("Tendencia de Ingresos ($)")
+        st.bar_chart(df_mensual.set_index('mes_anio')['valor'])
+
+    with c2:
+        st.subheader("Variación Porcentual (%)")
+        st.bar_chart(df_mensual.set_index('mes_anio')['variacion_pct'])
+
+    with st.expander("Ver tabla de datos detallada"):
+        st.dataframe(df_mensual)
+
+# ==========================================
+# PÁGINA 3: MAPA DE DATOS (FUNCIONAL)
+# ==========================================
+elif pagina == "🗺️ Mapa de Datos":
+    st.title("🗺️ Mapa de la Base de Datos Dentisalud")
+    st.subheader("🕵️ Explorador de Base de Datos")
+
+    try:
+        conn = st.connection("sql", type="sql")
+        
+        query_mapa = """
+        SELECT TABLE_SCHEMA as Esquema, TABLE_NAME as Tabla 
+        FROM INFORMATION_SCHEMA.TABLES 
+        WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME;
+        """
+        df_tablas = conn.query(query_mapa, ttl=600)
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.write("📂 **Tablas Disponibles**")
+            st.dataframe(df_tablas, use_container_width=True, height=500)
+
+        with col2:
+            st.write("🧪 **Probador de Datos**")
+            lista = df_tablas["Esquema"] + "." + df_tablas["Tabla"]
+            seleccion = st.selectbox("Elige una tabla:", lista)
+            
+            if st.button(f"Ver datos de {seleccion}"):
+                try:
+                    df = conn.query(f"SELECT TOP 50 * FROM {seleccion}", ttl=0)
+                    st.success(f"✅ Acceso correcto: {len(df)} filas recuperadas")
+                    st.balloons() # ¡Celebración activada!
+                    st.dataframe(df)
+                except Exception as e:
+                    st.error("⛔ Sin permiso o tabla vacía")
+                    st.write(e)
+
+    except Exception as e:
+        st.error("Error de conexión")
+        st.write(e)
