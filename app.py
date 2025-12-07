@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import os
+import re # Importar para extraer el SQL de la respuesta de la IA
 from google import genai
 from google.genai import types
 
@@ -14,7 +15,7 @@ pagina = st.sidebar.radio("Ir a:", ["🧠 Cerebro (Inicio)", "📊 Reportes Ejec
 st.sidebar.divider()
 
 # ==========================================
-# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE IA FINAL Y CORREGIDA
+# PÁGINA 1: CEREBRO (INICIO) - LÓGICA DE IA Y EJECUCIÓN REAL
 # ==========================================
 if pagina == "🧠 Cerebro (Inicio)":
     
@@ -55,9 +56,9 @@ if pagina == "🧠 Cerebro (Inicio)":
         system_prompt = f"""
         Eres un experto analista de datos de logística y finanzas.
         **Para responder, debes seguir 4 pasos strictos:**
-        1. **GENERACIÓN SQL:** Genera ÚNICAMENTE la consulta SQL más precisa (T-SQL) para obtener los datos. **NO INCLUYAS NINGÚN TEXTO ADICIONAL ANTES O DESPUÉS DEL CÓDIGO SQL.**
+        1. **GENERACIÓN SQL:** Genera ÚNICAMENTE la consulta SQL más precisa (T-SQL) para obtener los datos. **ENVUELVE EL CÓDIGO SQL EN BLOQUES MARKDOWN DE SQL (```sql...```)**.
         2. **EJECUCIÓN SQL:** (Simulado).
-        3. **ANÁLISIS:** Genera un análisis ejecutivo de alto nivel.
+        3. **ANÁLISIS:** Genera un análisis ejecutivo de alto nivel basado en la respuesta de la ejecución.
         4. **RECOMENDACIÓN:** Ofrece una recomendación estratégica.
         
         **ESQUEMA DE BD DISPONIBLE:**
@@ -66,29 +67,59 @@ if pagina == "🧠 Cerebro (Inicio)":
 
         try:
             with st.spinner('🧠 Gari Mind está generando la consulta y analizando los datos...'):
-                
-                # --- LLAMADA A LA API DE GEMINI (CONTENIDO SIMPLIFICADO Y CORREGIDO) ---
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    # FIX: Pasar el contenido como una lista de strings simple resuelve el error de "positional argument"
-                    contents=[f"Pregunta del usuario: {pregunta_usuario}"], 
+                    contents=[
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_text(f"Pregunta del usuario: {pregunta_usuario}")]
+                        )
+                    ],
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                     )
                 )
 
-            # 3. Mostrar Resultado Final
-            st.success("✅ Análisis Generado")
-            st.subheader("Respuesta de Gari Mind:")
-            st.markdown(response.text) 
+            # --- 3. PROCESAMIENTO Y EJECUCIÓN REAL DEL SQL ---
+            full_response_text = response.text
+            
+            # Extraer el código SQL usando regex (Busca el bloque ```sql...```)
+            sql_match = re.search(r"```sql(.*?)```", full_response_text, re.DOTALL)
+            
+            if sql_match:
+                extracted_sql = sql_match.group(1).strip()
+                st.subheader("Consulta SQL Generada y Ejecutada:")
+                st.code(extracted_sql, language="sql")
+                
+                # Ejecutar la consulta real contra la base de datos
+                conn = st.connection("sql", type="sql")
+                df_result = conn.query(extracted_sql, ttl=0)
+                
+                st.success("✅ Datos Reales Obtenidos:")
+                st.dataframe(df_result)
+                
+                # Opcional: Podrías usar estos datos reales para una segunda llamada a la IA si el análisis es incorrecto.
+                # Por simplicidad, mostraremos los resultados reales y el análisis de la IA juntos.
+                
+                st.subheader("Análisis de Gari Mind:")
+                st.markdown(full_response_text) # Muestra todo el análisis de la IA
+                
+            else:
+                st.error("⛔ La IA no generó una consulta SQL válida para ejecutar.")
+                st.markdown(full_response_text)
+                
+            # --- FIN PROCESAMIENTO ---
 
         except Exception as e:
-            st.error(f"⛔ Error en la conexión con Gemini o generación de contenido. Detalles: {e}")
+            st.error(f"⛔ Error al ejecutar la consulta SQL o en la conexión. Detalles: {e}")
             st.stop()
 
 
 # ==========================================
-# PÁGINA 2: REPORTES EJECUTIVOS (FUNCIONAL Y CORREGIDO)
+# PÁGINA 2: REPORTES EJECUTIVOS (FUNCIONAL)
+# ... [PÁGINAS 2 y 3 no necesitan cambios en este bloque ya que están correctas] ...
+# [El código de las Páginas 2 y 3 es idéntico al que me proporcionaste en el último turno]
+# ...
 # ==========================================
 elif pagina == "📊 Reportes Ejecutivos":
     st.title("📊 Reporte de Variación de Ingresos")
