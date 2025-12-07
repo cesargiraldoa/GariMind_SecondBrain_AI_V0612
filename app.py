@@ -4,12 +4,11 @@ import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import calendar  # <--- 1. IMPORTAMOS LA HERRAMIENTA QUE FALTABA
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
 
-# --- FUNCIÓN CEREBRO (GPT-4o) ---
+# --- FUNCIÓN CEREBRO (GPT-4o ESTÉTICO) ---
 def analizar_con_gpt(df, pregunta, api_key):
     try:
         client = openai.OpenAI(api_key=api_key)
@@ -20,28 +19,28 @@ def analizar_con_gpt(df, pregunta, api_key):
         muestra = buffer.getvalue()
         info_cols = df.dtypes.to_string()
         
-        # 2. PROMPT
+        # 2. PROMPT DE DISEÑO
         prompt_system = """
-        Eres Gari, experto en Data Science.
+        Eres Gari, experto en Data Visualization con Python.
         
-        TU MISIÓN:
-        Analizar el DataFrame 'df' (ya cargado) y generar 3 variables.
+        REGLAS DE DATOS:
+        1. Usa 'df' y la columna 'Fecha'. Ignora 'FechaCargue'.
+        2. NO inventes datos.
         
-        REGLAS:
-        1. Usa la columna 'Fecha'. Ignora 'FechaCargue'.
-        2. NO inventes datos. Usa 'df'.
+        REGLAS DE VISUALIZACIÓN (CRÍTICO):
+        1. IDIOMA: Los meses DEBEN ser en Español (Enero, Febrero...).
+           - Usa un diccionario manual: {1: 'Enero', 2: 'Febrero'...}. NO uses calendar.month_name (sale en inglés).
         
-        VARIABLES A CREAR:
-        A. 'resultado' (str): Nombre del mes con más ventas (en Español).
+        2. TABLA:
+           - Crea 'tabla_resultados' agrupando por mes.
+           - Ordena cronológicamente (Enero primero).
         
-        B. 'tabla_resultados' (DataFrame): 
-           - Agrupado por Mes, suma de 'Valor'.
-           - IMPORTANTE: Ordena los meses cronológicamente (Enero, Febrero...), usa la librería 'calendar' si la necesitas.
-           
-        C. 'fig' (matplotlib figure):
-           - Gráfico de barras.
-           - Etiquetas de datos encima de las barras.
-           - Formato de miles en el eje Y.
+        3. GRÁFICO ('fig'):
+           - Título: 'Ventas Mensuales 2025'.
+           - Color de barras: 'skyblue' o un color corporativo suave.
+           - ETIQUETAS: Usa ax.bar_label(bars, fmt='${:,.0f}', rotation=90, padding=4).
+             * IMPORTANTE: La rotación 90 evita que se superpongan.
+           - MARGENES: Aumenta el límite Y (ax.set_ylim) un 20% extra para que las etiquetas verticales quepan y no se corten.
         """
         
         prompt_user = f"""
@@ -49,7 +48,7 @@ def analizar_con_gpt(df, pregunta, api_key):
         Muestra: {muestra}
         Pregunta: "{pregunta}"
         
-        Genera SOLO código Python.
+        Genera SOLO el código Python para crear: 'resultado', 'tabla_resultados' y 'fig'.
         """
 
         # 3. Llamada GPT
@@ -64,9 +63,8 @@ def analizar_con_gpt(df, pregunta, api_key):
         
         codigo = response.choices[0].message.content.replace("```python", "").replace("```", "").strip()
         
-        # 4. Ejecución (AQUÍ ESTÁ EL ARREGLO)
-        # Le damos permiso para usar 'calendar'
-        local_vars = {'df': df, 'pd': pd, 'plt': plt, 'ticker': ticker, 'calendar': calendar}
+        # 4. Ejecución
+        local_vars = {'df': df, 'pd': pd, 'plt': plt, 'ticker': ticker}
         exec(codigo, globals(), local_vars)
         
         return (local_vars.get('resultado', None), 
@@ -75,7 +73,7 @@ def analizar_con_gpt(df, pregunta, api_key):
                 codigo)
 
     except Exception as e:
-        return f"Error en el código generado: {str(e)}", None, None, ""
+        return f"Error: {str(e)}", None, None, ""
 
 # --- CARGA DE DATOS SQL ---
 @st.cache_data(ttl=0)
@@ -108,36 +106,32 @@ if pagina == "Chat":
         df = cargar_datos_sql()
     
     if not df.empty:
-        # Confirmación visual
+        # Info fecha
         fecha_max = df['Fecha'].max()
-        st.caption(f"📅 Datos reales hasta: {fecha_max.strftime('%d/%m/%Y')}")
+        st.caption(f"📅 Datos hasta: {fecha_max.strftime('%d/%m/%Y')}")
             
         pregunta = st.text_input("Consulta:", "Cual fue el mes de mayor venta en el año 2025?")
         
         if st.button("Analizar"):
             if api_key:
-                with st.spinner("Gari está analizando..."):
+                with st.spinner("Diseñando gráfico..."):
                     res_txt, res_fig, res_tabla, cod = analizar_con_gpt(df, pregunta, api_key)
                     
                     st.divider()
                     
-                    # 1. Respuesta
-                    if res_txt and "Error" not in str(res_txt):
-                        st.success(f"📌 El mes ganador es: **{res_txt}**")
-                    elif res_txt:
-                         st.error(res_txt) # Si hay error, mostrarlo
+                    if res_txt:
+                        st.success(f"📌 Mes ganador: **{res_txt}**")
+                    else:
+                        st.warning("No hay datos para esta fecha.")
 
-                    # 2. Tabla
                     if res_tabla is not None:
-                        st.write("### 📅 Resumen Mensual")
+                        st.write("### 📅 Resumen (Ordenado)")
                         st.dataframe(res_tabla.style.format({"Ventas": "${:,.0f}"}), use_container_width=True)
 
-                    # 3. Gráfico
                     if res_fig:
-                        st.write("### 📊 Gráfico")
+                        st.write("### 📊 Gráfico Detallado")
                         st.pyplot(res_fig)
                     
-                    # 4. Código
                     with st.expander("Ver código"):
                         st.code(cod, language='python')
             else:
