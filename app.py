@@ -45,7 +45,7 @@ if pagina == "🧠 Cerebro (Inicio)":
         Tabla: stg.Ingresos_Detallados
         Columnas clave: 
         - Fecha (string, DD/MM/YYYY): Fecha de la transacción.
-        - Valor (int): Monto del ingreso.
+        - Valor (nvarchar): Monto del ingreso. ***ATENCIÓN: DEBES USAR CAST(Valor AS FLOAT) DENTRO DE SUM() o AVG().***
         - Sucursal (string): Sede donde ocurrió la venta.
         - Forma_de_Pago (string): Medio de pago (EFECTIVO, TARJETA, etc.)
         
@@ -68,13 +68,12 @@ if pagina == "🧠 Cerebro (Inicio)":
         try:
             with st.spinner('🧠 Gari Mind está generando la consulta y analizando los datos...'):
                 
-                # --- FIX: USANDO 'text=' COMO ARGUMENTO NOMBRADO PARA EVITAR EL ERROR DE POSICIÓN ---
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
                     contents=[
                         types.Content(
                             role="user",
-                            parts=[types.Part.from_text(text=f"Pregunta del usuario: {pregunta_usuario}")] # FIX APLICADO AQUÍ
+                            parts=[types.Part.from_text(text=f"Pregunta del usuario: {pregunta_usuario}")]
                         )
                     ],
                     config=types.GenerateContentConfig(
