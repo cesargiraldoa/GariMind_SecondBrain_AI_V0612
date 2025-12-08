@@ -9,7 +9,6 @@ import time
 import datetime
 import calendar
 import numpy as np
-import random
 
 # --- LIBRERÍAS ML ---
 from sklearn.ensemble import RandomForestRegressor
@@ -26,52 +25,31 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🎨 CSS BLINDADO (ESTILO GARI RACING + PODIO + LEADERBOARD)
+# 🎨 CSS BLINDADO
 # ==============================================================================
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap');
 
-        /* 1. FONDO PRINCIPAL */
         .stApp {
             background-color: #060818 !important;
             background-image: linear-gradient(180deg, #060818 0%, #0b1026 100%) !important;
             color: #ffffff !important;
         }
-
-        /* 2. BARRA LATERAL (SIDEBAR) */
         [data-testid="stSidebar"] {
             background-color: #000000 !important;
             border-right: 2px solid #cc0000 !important;
         }
-        [data-testid="stSidebar"] * {
-            color: #ffffff !important;
-        }
-        [data-testid="stSidebar"] input {
-            background-color: #111111 !important;
-            color: #ffffff !important;
-            border: 1px solid #cc0000 !important;
-        }
-        [data-testid="stSidebar"] label {
-            color: #fcd700 !important;
-            font-family: 'Orbitron', sans-serif !important;
-            font-size: 0.8rem !important;
-        }
-
-        /* 3. TIPOGRAFÍA */
+        [data-testid="stSidebar"] * { color: #ffffff !important; }
+        
         h1, h2, h3, h4, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
             font-family: 'Orbitron', sans-serif !important;
             color: #ffffff !important;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
-        
-        p, div, span, td, li {
-            font-family: 'Roboto', sans-serif;
-            color: #e0e0e0;
-        }
+        p, div, span, td, li { font-family: 'Roboto', sans-serif; color: #e0e0e0; }
 
-        /* 4. KPI CARDS */
         div[data-testid="stMetric"] {
             background-color: #151925 !important;
             border-left: 4px solid #cc0000 !important;
@@ -79,18 +57,10 @@ st.markdown("""
             border-radius: 5px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
-        div[data-testid="stMetricValue"] {
-            color: #ffffff !important;
-            font-family: 'Orbitron', sans-serif !important;
-        }
-        div[data-testid="stMetricDelta"] {
-            color: #fcd700 !important;
-        }
-        div[data-testid="stMetricLabel"] {
-            color: #cccccc !important;
-        }
+        div[data-testid="stMetricValue"] { color: #ffffff !important; font-family: 'Orbitron', sans-serif !important; }
+        div[data-testid="stMetricDelta"] { color: #fcd700 !important; }
+        div[data-testid="stMetricLabel"] { color: #cccccc !important; }
 
-        /* 5. BOTONES */
         .stButton > button {
             background: linear-gradient(90deg, #cc0000 0%, #990000 100%) !important;
             color: white !important;
@@ -98,221 +68,88 @@ st.markdown("""
             border-radius: 4px !important;
             font-family: 'Orbitron', sans-serif !important;
             font-weight: bold !important;
-            text-transform: uppercase !important;
-        }
-        .stButton > button:hover {
-            transform: scale(1.02);
-            box-shadow: 0 0 15px rgba(204, 0, 0, 0.8);
-        }
-
-        /* 6. TABLAS */
-        [data-testid="stTable"] {
-            color: white !important;
-        }
-        .stDataFrame {
-            border: 1px solid #333 !important;
         }
         
-        /* 7. EXPANDERS */
-        .streamlit-expanderHeader {
-            background-color: #151925 !important;
-            color: #ffffff !important;
-            font-family: 'Orbitron', sans-serif !important;
-        }
+        [data-testid="stTable"] { color: white !important; }
+        .stDataFrame { border: 1px solid #333 !important; }
+        .streamlit-expanderHeader { background-color: #151925 !important; color: #ffffff !important; font-family: 'Orbitron', sans-serif !important; }
         
-        /* 8. PODIO STYLES */
-        .podium-container {
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            height: 250px;
-            gap: 10px;
-        }
-        .podium-step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-end;
-            border-radius: 10px 10px 0 0;
-            padding: 10px;
-            color: white;
-            font-family: 'Orbitron', sans-serif;
-            text-align: center;
-            transition: transform 0.3s;
-        }
-        .podium-step:hover {
-            transform: scale(1.05);
-        }
-        .gold {
-            background: linear-gradient(180deg, #FFD700 0%, #B8860B 100%);
-            height: 100%;
-            width: 100%;
-            border: 2px solid #FFD700;
-            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
-            z-index: 2;
-        }
-        .silver {
-            background: linear-gradient(180deg, #C0C0C0 0%, #A9A9A9 100%);
-            height: 85%;
-            width: 100%;
-            border: 2px solid #C0C0C0;
-            opacity: 0.9;
-        }
-        .bronze {
-            background: linear-gradient(180deg, #CD7F32 0%, #8B4513 100%);
-            height: 70%;
-            width: 100%;
-            border: 2px solid #CD7F32;
-            opacity: 0.9;
-        }
+        /* PODIO */
+        .podium-container { display: flex; align-items: flex-end; justify-content: center; height: 250px; gap: 10px; }
+        .podium-step { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; border-radius: 10px 10px 0 0; padding: 10px; color: white; font-family: 'Orbitron', sans-serif; text-align: center; }
+        .gold { background: linear-gradient(180deg, #FFD700 0%, #B8860B 100%); width: 100%; border: 2px solid #FFD700; }
+        .silver { background: linear-gradient(180deg, #C0C0C0 0%, #A9A9A9 100%); width: 100%; border: 2px solid #C0C0C0; opacity: 0.9; }
+        .bronze { background: linear-gradient(180deg, #CD7F32 0%, #8B4513 100%); width: 100%; border: 2px solid #CD7F32; opacity: 0.9; }
         .medal { font-size: 3rem; margin-bottom: -5px; }
         .manager-name { font-size: 1.1rem; font-weight: bold; margin-top: 5px; }
         .manager-value { font-size: 0.9rem; color: #000; font-weight: bold; background: rgba(255,255,255,0.9); padding: 2px 8px; border-radius: 4px; margin-top: 5px;}
 
-        /* 9. LEADERBOARD (TABLA POSICIONES F1) */
-        .leaderboard-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background-color: #151925;
-            padding: 10px 20px;
-            margin-bottom: 5px;
-            border-left: 3px solid #333;
-            border-radius: 4px;
-            transition: all 0.2s;
-        }
-        .leaderboard-row:hover {
-            background-color: #1e2433;
-            border-left: 3px solid #cc0000;
-            transform: translateX(5px);
-        }
-        .pos {
-            font-family: 'Orbitron', sans-serif;
-            color: #8fa1b3;
-            width: 40px;
-            font-weight: bold;
-        }
-        .driver {
-            flex-grow: 1;
-            font-weight: bold;
-            color: white;
-        }
-        .time {
-            font-family: 'Orbitron', sans-serif;
-            color: #fcd700;
-        }
+        /* LEADERBOARD */
+        .leaderboard-row { display: flex; justify-content: space-between; align-items: center; background-color: #151925; padding: 10px 20px; margin-bottom: 5px; border-left: 3px solid #333; border-radius: 4px; }
+        .pos { font-family: 'Orbitron', sans-serif; color: #8fa1b3; width: 40px; font-weight: bold; }
+        .driver { flex-grow: 1; font-weight: bold; color: white; }
+        .time { font-family: 'Orbitron', sans-serif; color: #fcd700; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- FUNCIÓN COLOR TABLAS ---
 def color_negative_red(val):
-    try:
-        if val < 0: return 'color: #ff4b4b !important; font-weight: bold'
-        return 'color: #ffffff !important'
+    try: return 'color: #ff4b4b !important; font-weight: bold' if val < 0 else 'color: #ffffff !important'
     except: return 'color: #ffffff !important'
 
-# --- GESTIÓN DE SESIÓN ---
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-
+# --- LOGIN ---
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 def check_password():
     def login_form():
-        with st.sidebar:
-            st.markdown("### 🔒 SECURITY CHECK")
-            st.info("Biometrics required")
-            
+        with st.sidebar: st.markdown("### 🔒 SECURITY CHECK"); st.info("Biometrics required")
         st.markdown("<br><br>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2:
-            st.markdown("""
-            <div style="text-align: center; border: 2px solid #cc0000; padding: 20px; border-radius: 10px; background-color: #0E1117;">
-                <h1 style="color:#cc0000; font-size: 3rem; margin-bottom:0;">GARI</h1>
-                <h4 style="color:#fcd700; margin-top:0;">DATA SECOND BRAIN</h4>
-                <hr style="border-color: #333;">
-            </div>
-            <br>
-            """, unsafe_allow_html=True)
-            
-            usuario = st.text_input("USUARIO")
-            clave = st.text_input("CONTRASEÑA", type="password")
-            
+            st.markdown("""<div style="text-align: center; border: 2px solid #cc0000; padding: 20px; border-radius: 10px; background-color: #0E1117;"><h1 style="color:#cc0000; font-size: 3rem; margin-bottom:0;">GARI</h1><h4 style="color:#fcd700; margin-top:0;">DATA SECOND BRAIN</h4><hr style="border-color: #333;"></div><br>""", unsafe_allow_html=True)
+            usuario = st.text_input("USUARIO"); clave = st.text_input("CONTRASEÑA", type="password")
             if st.button("INICIAR SISTEMA 🚀", use_container_width=True):
-                usuarios_validos = {
-                    "gerente": "alivio2025", 
-                    "admin": "admin123",
-                    "gari": "hamster"
-                }
-                if usuario in usuarios_validos and usuarios_validos[usuario] == clave:
-                    st.session_state.authenticated = True
-                    st.success("ACCESO CORRECTO.")
-                    time.sleep(0.5)
-                    st.rerun()
-                else:
-                    st.error("ACCESO DENEGADO.")
-
-    if not st.session_state.authenticated:
-        login_form()
-        return False
+                if usuario in {"gerente":"alivio2025","admin":"admin123"} and clave == {"gerente":"alivio2025","admin":"admin123"}[usuario]:
+                    st.session_state.authenticated = True; st.success("ACCESO CORRECTO."); time.sleep(0.5); st.rerun()
+                else: st.error("ACCESO DENEGADO.")
+    if not st.session_state.authenticated: login_form(); return False
     return True
-
-if not check_password():
-    st.stop()
-
-# ==============================================================================
-# 🚀 APLICACIÓN PRINCIPAL
-# ==============================================================================
+if not check_password(): st.stop()
 
 # --- HERRAMIENTAS ---
-meses_es = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
-dias_es = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
+meses_es = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'}
+dias_es = {0:'Lunes',1:'Martes',2:'Miércoles',3:'Jueves',4:'Viernes',5:'Sábado',6:'Domingo'}
 
-# --- GRÁFICOS ---
 def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#cc0000', formato='dinero'):
-    fig, ax = plt.subplots(figsize=(10, 4))
-    fig.patch.set_facecolor('#0E1117') 
-    ax.set_facecolor('#0E1117')
+    fig, ax = plt.subplots(figsize=(10, 4)); fig.patch.set_facecolor('#0E1117'); ax.set_facecolor('#0E1117')
     bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='#fcd700', linewidth=0.5, alpha=0.9)
     fmt = '${:,.0f}' if formato == 'dinero' else '{:,.0f}'
     ax.bar_label(bars, fmt=fmt, padding=3, rotation=90, fontsize=9, fontweight='bold', color='white')
-    ax.spines['bottom'].set_color('white')
-    ax.spines['left'].set_color('white')
-    ax.tick_params(axis='x', colors='white', rotation=0, labelsize=9)
-    ax.tick_params(axis='y', colors='white')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.get_yaxis().set_visible(False)
-    ax.set_title(titulo, fontsize=12, fontweight='bold', color='white', pad=15)
-    plt.tight_layout()
+    ax.spines['bottom'].set_color('white'); ax.spines['left'].set_color('white'); ax.tick_params(colors='white')
+    ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False); ax.spines['left'].set_visible(False); ax.get_yaxis().set_visible(False)
+    ax.set_title(titulo, fontsize=12, fontweight='bold', color='white', pad=15); plt.tight_layout()
     return fig
 
-# --- 🧠 GENERADOR DE DATOS SIMULADOS PARA IA (MODO DEMO) ---
-def generar_datos_ia_demo():
-    """Genera datos perfectos para que la IA luzca bien en la presentación."""
+# --- GENERADOR DE DATOS FICTICIOS OPTIMIZADO (VECTORIZADO) ---
+@st.cache_data(show_spinner=False)
+def generar_datos_ia_demo_rapido():
+    """Genera datos de forma instantánea usando Numpy."""
     fechas = pd.date_range(start="2022-01-01", end=datetime.date.today(), freq="D")
-    valores = []
+    n = len(fechas)
     
-    # Simulación de tendencia positiva con estacionalidad semanal
-    base = 1000000
-    for i, fecha in enumerate(fechas):
-        tendencia = i * 500  # Crecimiento constante
-        dia_semana = fecha.dayofweek
-        estacionalidad = 500000 if dia_semana >= 4 else 0 # Fines de semana venden más
-        ruido = random.randint(-200000, 200000)
-        valor = base + tendencia + estacionalidad + ruido
-        valores.append(valor)
-        
+    # Patrones vectorizados
+    tendencia = np.linspace(0, 2000000, n) # Crecimiento lineal
+    dias_semana = fechas.dayofweek
+    estacionalidad = np.where(dias_semana >= 4, 800000, 200000) # Fines de semana venden más
+    ruido = np.random.normal(0, 150000, n) # Variación aleatoria
+    
+    valores = 1500000 + tendencia + estacionalidad + ruido
+    valores = np.maximum(valores, 500000) # Evitar negativos
+    
     df = pd.DataFrame({'Fecha': fechas, 'Valor': valores})
     df['DiaNum'] = df['Fecha'].dt.dayofweek
     df['DiaMes'] = df['Fecha'].dt.day
     df['Mes'] = df['Fecha'].dt.month
     df['Año'] = df['Fecha'].dt.year
     df['MesNum'] = df['Fecha'].dt.month
-    
-    # Zonas ficticias para que no rompa
-    df['ZONA'] = 'ZONA DEMO'
-    df['Sucursal'] = 'CLÍNICA DEMO'
-    
     return df
 
 # --- IA HÍBRIDA ---
@@ -334,12 +171,11 @@ def entrenar_modelo_predictivo(df):
         X_train, X_test = X.iloc[:split], X.iloc[split:]
         y_train, y_test = y.iloc[:split], y.iloc[split:]
         
-        m_rf = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42).fit(X_train, y_train)
+        m_rf = RandomForestRegressor(n_estimators=50, max_depth=10, random_state=42).fit(X_train, y_train) # 50 árboles es más rápido
         r2_rf = r2_score(y_test, m_rf.predict(X_test))
         m_lr = LinearRegression().fit(X_train, y_train)
         r2_lr = r2_score(y_test, m_lr.predict(X_test))
         
-        # En modo demo, siempre forzamos que se vea bien
         if r2_rf > 0 and r2_rf > r2_lr: return m_rf, {"R2": r2_rf, "MAE": mean_absolute_error(y_test, m_rf.predict(X_test))}, "Random Forest (Complejo)"
         else: return m_lr, {"R2": r2_lr, "MAE": mean_absolute_error(y_test, m_lr.predict(X_test))}, "Linear Engine (Tendencia)"
     except: return None, None, "Error"
@@ -375,15 +211,13 @@ def generar_reporte_pmv_whatsapp(df):
         return f"https://wa.me/?text={urllib.parse.quote(msg)}"
     except: return "https://wa.me/"
 
-# --- CARGA DATOS (REAL - TELEMETRÍA) ---
+# --- CARGA DATOS (TELEMETRÍA REAL - SQL) ---
 @st.cache_data(ttl=3600, show_spinner="🔌 Conectando Neuronas (SQL)...")
 def cargar_datos_integrados():
     df_final = pd.DataFrame()
     try:
         conn = st.connection("sql", type="sql")
-        # 1. MODO SEGURO: SELECT *
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=3600)
-            
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         df['Año'] = df['Fecha'].dt.year
@@ -392,15 +226,12 @@ def cargar_datos_integrados():
         df['DiaNum'] = df['Fecha'].dt.dayofweek
         df['Dia'] = df['DiaNum'].map(dias_es)
         df['Tx'] = 1 
-        
         datos_zonas = {'CLINICAS': ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'PASEO VILLA DEL RIO', 'CENTRO MAYOR', 'MULTIPLAZA', 'SALITRE', 'UNICENTRO', 'ITAGUI', 'LA PLAYA', 'POBLADO', 'CALI CIUDAD JARDIN', 'CALLE 80', 'GRAN ESTACION', 'CEDRITOS', 'PORTAL 80', 'CENTRO', 'VILLAVICENCIO', 'KENNEDY', 'ROMA', 'VILLAS', 'ALAMOS', 'CALI AV 6TA', 'MALL PLAZA BOGOTA', 'CALI CALIMA', 'PLAZA DE LAS AMERICAS', 'SUBA PLAZA IMPERIAL', 'MALL PLAZA BARRANQUILLA', 'LA FLORESTA', 'PALMIRA', 'RESTREPO', 'MALL PLAZA CALI'], 'ZONA': ['ZONA 4', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 5', 'ZONA 3', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 4', 'ZONA 4', 'ZONA 2', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 1'], 'CIUDAD': ['BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'MEDELLÍN', 'MEDELLÍN', 'MEDELLÍN', 'CALI', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'VILLAVICENCIO', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'CALI', 'BOGOTÁ', 'CALI', 'BOGOTÁ', 'BOGOTÁ', 'BARRANQUILLA', 'MEDELLÍN', 'CALI', 'BOGOTÁ', 'CALI'], 'RED': ['PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'FRANQUICIA', 'FRANQUICIA', 'FRANQUICIA', 'PROPIA']}
         df_z = pd.DataFrame(datos_zonas)
         df['Sucursal_Upper'] = df['Sucursal'].str.upper().str.strip()
         df_z['CLINICAS'] = df_z['CLINICAS'].str.upper().str.strip()
         df_f = df.merge(df_z, left_on='Sucursal_Upper', right_on='CLINICAS', how='left')
-        
-        vals = {'ZONA':'Sin Zona', 'CIUDAD':'Otras', 'RED':'No Def'}
-        df_f.fillna(value=vals, inplace=True)
+        df_f.fillna({'ZONA':'Sin Zona', 'CIUDAD':'Otras', 'RED':'No Def'}, inplace=True)
         return df_f
     except: return pd.DataFrame()
 
@@ -416,31 +247,18 @@ def analizar_gpt(df, p, k):
 
 # --- NAV ---
 with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 20px;">
-        <h2 style="color:#cc0000; border-bottom: 2px solid #fcd700; padding-bottom: 10px;">COMANDO</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown(f"**👤 USUARIO:** `Conectado`")
-    if st.button("CERRAR SESIÓN"):
-        st.session_state.authenticated = False
-        st.rerun()
+    st.markdown("""<div style="text-align: center; margin-bottom: 20px;"><h2 style="color:#cc0000; border-bottom: 2px solid #fcd700; padding-bottom: 10px;">COMANDO</h2></div>""", unsafe_allow_html=True)
+    st.markdown(f"**👤 USUARIO:** `Conectado`"); 
+    if st.button("CERRAR SESIÓN"): st.session_state.authenticated = False; st.rerun()
     st.markdown("---")
     
     with st.spinner("Cargando..."): df_raw = cargar_datos_integrados()
     
     if not df_raw.empty:
         link = generar_reporte_pmv_whatsapp(df_raw)
-        st.markdown(f"""
-        <a href="{link}" target="_blank">
-            <button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">
-            📲 REPORTE WHATSAPP
-            </button>
-        </a>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<a href="{link}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">📲 REPORTE WHATSAPP</button></a>""", unsafe_allow_html=True)
         
     pagina = st.radio("MENÚ PRINCIPAL", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🧠 Chat Gari IA"])
-    
     if "OPENAI_API_KEY" in st.secrets: api_key = st.secrets["OPENAI_API_KEY"]
     else: api_key = st.text_input("🔑 API KEY:", type="password")
 
@@ -448,39 +266,23 @@ with st.sidebar:
 if pagina == "📊 Telemetría en Vivo":
     st.markdown("## 🏁 TELEMETRÍA DE COMANDO")
     if not df_raw.empty:
-        # --- PODIO DE CAMPEONES ---
         st.markdown("### 🏆 PODIO DE GERENTES ZONALES")
         anio_actual = df_raw['Año'].max()
         df_act = df_raw[df_raw['Año'] == anio_actual]
-        
         df_ranking = df_act.groupby('ZONA')['Valor'].sum().reset_index().sort_values('Valor', ascending=False)
         
-        # TOP 3
         if len(df_ranking) >= 3:
-            top1 = df_ranking.iloc[0]
-            top2 = df_ranking.iloc[1]
-            top3 = df_ranking.iloc[2]
-            
+            t1, t2, t3 = df_ranking.iloc[0], df_ranking.iloc[1], df_ranking.iloc[2]
             c_slv, c_gld, c_brz = st.columns([1, 1, 1])
-            with c_slv: st.markdown(f"""<div class="podium-step silver"><div class="medal">🥈</div><div class="manager-name">{top2['ZONA']}</div><div class="manager-value">${top2['Valor']/1e6:,.0f}M</div></div><div style="height: 20px;"></div>""", unsafe_allow_html=True)
-            with c_gld: st.markdown(f"""<div class="podium-step gold"><div class="medal">🥇</div><div class="manager-name">{top1['ZONA']}</div><div class="manager-value">${top1['Valor']/1e6:,.0f}M</div></div>""", unsafe_allow_html=True)
-            with c_brz: st.markdown(f"""<div class="podium-step bronze"><div class="medal">🥉</div><div class="manager-name">{top3['ZONA']}</div><div class="manager-value">${top3['Valor']/1e6:,.0f}M</div></div><div style="height: 40px;"></div>""", unsafe_allow_html=True)
+            with c_slv: st.markdown(f"""<div class="podium-step silver"><div class="medal">🥈</div><div class="manager-name">{t2['ZONA']}</div><div class="manager-value">${t2['Valor']/1e6:,.0f}M</div></div><div style="height: 20px;"></div>""", unsafe_allow_html=True)
+            with c_gld: st.markdown(f"""<div class="podium-step gold"><div class="medal">🥇</div><div class="manager-name">{t1['ZONA']}</div><div class="manager-value">${t1['Valor']/1e6:,.0f}M</div></div>""", unsafe_allow_html=True)
+            with c_brz: st.markdown(f"""<div class="podium-step bronze"><div class="medal">🥉</div><div class="manager-name">{t3['ZONA']}</div><div class="manager-value">${t3['Valor']/1e6:,.0f}M</div></div><div style="height: 40px;"></div>""", unsafe_allow_html=True)
         
         st.markdown("---")
-        
-        # --- RESTO DE LA PARRILLA (POSICIONES 4+) DIRECTO (SIN EXPANDER) ---
         if len(df_ranking) > 3:
             st.markdown("#### 🏁 CLASIFICACIÓN GENERAL (PARRILLA)")
-            resto = df_ranking.iloc[3:]
-            for i, row in resto.iterrows():
-                pos = i + 1
-                st.markdown(f"""
-                <div class="leaderboard-row">
-                    <div class="pos">P{pos}</div>
-                    <div class="driver">{row['ZONA']}</div>
-                    <div class="time">${row['Valor']:,.0f}</div>
-                </div>
-                """, unsafe_allow_html=True)
+            for i, row in df_ranking.iloc[3:].iterrows():
+                st.markdown(f"""<div class="leaderboard-row"><div class="pos">P{i+1}</div><div class="driver">{row['ZONA']}</div><div class="time">${row['Valor']:,.0f}</div></div>""", unsafe_allow_html=True)
             st.markdown("---")
 
         with st.expander("🛠️ CONFIGURACIÓN DE FILTROS", expanded=True):
@@ -520,12 +322,8 @@ if pagina == "📊 Telemetría en Vivo":
             st.pyplot(graficar_barras_pro(df_act_filt.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False), 'ZONA', col_kpi, 'Ranking Sectores'))
         
         c1,c2 = st.columns(2)
-        with c1:
-            df_m = df_act_filt.groupby('MesNum').agg({col_kpi:'sum'}).reset_index(); df_m['Mes'] = df_m['MesNum'].map(meses_es)
-            st.pyplot(graficar_barras_pro(df_m, 'Mes', col_kpi, 'Ritmo Mensual'))
-        with c2:
-            df_d = df_act_filt.groupby(['DiaNum','Dia']).agg({col_kpi:'sum'}).reset_index().sort_values('DiaNum')
-            st.pyplot(graficar_barras_pro(df_d, 'Dia', col_kpi, 'Trazado Semanal', '#2c3e50'))
+        with c1: st.pyplot(graficar_barras_pro(df_act_filt.groupby('MesNum').agg({col_kpi:'sum'}).reset_index().assign(Mes=lambda x:x['MesNum'].map(meses_es)), 'Mes', col_kpi, 'Ritmo Mensual'))
+        with c2: st.pyplot(graficar_barras_pro(df_act_filt.groupby(['DiaNum','Dia']).agg({col_kpi:'sum'}).reset_index().sort_values('DiaNum'), 'Dia', col_kpi, 'Trazado Semanal', '#2c3e50'))
             
         st.markdown("### 🏥 3. TELEMETRÍA DETALLADA")
         for s in sorted(df_act_filt['Sucursal'].unique()):
@@ -534,15 +332,14 @@ if pagina == "📊 Telemetría en Vivo":
                 c1,c2 = st.columns(2)
                 with c1: st.pyplot(graficar_barras_pro(d_s.groupby('MesNum').agg({col_kpi:'sum'}).reset_index().assign(Mes=lambda x:x['MesNum'].map(meses_es)), 'Mes', col_kpi, 'Mensual'))
                 with c2: st.pyplot(graficar_barras_pro(d_s.groupby(['DiaNum','Dia']).agg({col_kpi:'sum'}).reset_index().sort_values('DiaNum'), 'Dia', col_kpi, 'Semanal', '#8fa1b3'))
-                
                 df_tbl = d_s.groupby('MesNum').agg({'Valor':'sum','Tx':'sum'}).reset_index().assign(Mes=lambda x:x['MesNum'].map(meses_es))
                 df_tbl['Var'] = df_tbl['Valor'].pct_change()*100
                 st.table(df_tbl[['Mes','Valor','Var','Tx']].style.format({'Valor':'${:,.0f}','Var':'{:.1f}%'}).applymap(color_negative_red, subset=['Var']))
 
 elif pagina == "🔮 Estrategia & Predicción":
     st.markdown("## 🔮 SIMULACIÓN DE ESTRATEGIA (IA)")
-    # 🚨 AQUÍ USAMOS LOS DATOS SIMULADOS PARA QUE NO FALLE 🚨
-    df_ia = generar_datos_ia_demo()
+    # USAMOS DATOS MOCK PARA IA SOLAMENTE
+    df_ia = generar_datos_ia_demo_rapido()
     anio, mes = df_ia['Año'].max(), df_ia['Fecha'].max().month
     
     with st.expander("📂 VER HISTORIA DE DATOS (2022-2025)", expanded=False):
@@ -558,7 +355,6 @@ elif pagina == "🔮 Estrategia & Predicción":
         st.success(f"🏎️ MOTOR GANADOR: **{nom}**")
         c1,c2=st.columns(2)
         c1.metric("PRECISIÓN (R²)", f"{met['R2']:.2f}"); c2.metric("ERROR (MAE)", f"${met['MAE']:,.0f}")
-        
         df_p, sum_fut = predecir_cierre_mes(mod, df_ia, df_ia['Fecha'].max())
         hoy = df_ia[df_ia['MesNum']==mes]['Valor'].sum()
         final = hoy + sum_fut
@@ -583,6 +379,6 @@ elif pagina == "🧠 Chat Gari IA":
     st.markdown("## 📻 RADIO CHECK"); p = st.text_input("Consultar Gari IA...")
     if st.button("COPY THAT") and api_key:
         txt, fig, tbl, _ = analizar_gpt(df_raw, p, api_key)
-        if txt: st.info(txt)
+        if txt: st.info(txt); 
         if tbl is not None: st.dataframe(tbl)
         if fig: st.pyplot(fig)
