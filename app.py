@@ -18,14 +18,14 @@ from sklearn.metrics import mean_absolute_error, r2_score
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Gari | RB Racing", 
-    page_icon="🏎️", 
+    page_title="Gari | Second Brain", 
+    page_icon="🧠", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ==============================================================================
-# 🎨 CSS BLINDADO
+# 🎨 CSS BLINDADO (ESTILO GARI RACING)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -132,6 +132,7 @@ if 'authenticated' not in st.session_state:
 
 def check_password():
     def login_form():
+        # Sidebar simplificado para Login
         with st.sidebar:
             st.markdown("### 🔒 SECURITY CHECK")
             st.info("Biometrics required")
@@ -142,16 +143,16 @@ def check_password():
             st.markdown("""
             <div style="text-align: center; border: 2px solid #cc0000; padding: 20px; border-radius: 10px; background-color: #0E1117;">
                 <h1 style="color:#cc0000; font-size: 3rem; margin-bottom:0;">GARI</h1>
-                <h4 style="color:#fcd700; margin-top:0;">RED BULL RACING DATA</h4>
+                <h4 style="color:#fcd700; margin-top:0;">DATA SECOND BRAIN</h4>
                 <hr style="border-color: #333;">
             </div>
             <br>
             """, unsafe_allow_html=True)
             
-            usuario = st.text_input("PILOTO (Usuario)")
-            clave = st.text_input("CÓDIGO (Password)", type="password")
+            usuario = st.text_input("USUARIO")
+            clave = st.text_input("CONTRASEÑA", type="password")
             
-            if st.button("START ENGINE 🏁", use_container_width=True):
+            if st.button("INICIAR SISTEMA 🚀", use_container_width=True):
                 usuarios_validos = {
                     "gerente": "alivio2025", 
                     "admin": "admin123",
@@ -159,11 +160,11 @@ def check_password():
                 }
                 if usuario in usuarios_validos and usuarios_validos[usuario] == clave:
                     st.session_state.authenticated = True
-                    st.success("ACCESS GRANTED.")
+                    st.success("ACCESO CORRECTO.")
                     time.sleep(0.5)
                     st.rerun()
                 else:
-                    st.error("ACCESS DENIED.")
+                    st.error("ACCESO DENEGADO.")
 
     if not st.session_state.authenticated:
         login_form()
@@ -223,8 +224,8 @@ def entrenar_modelo_predictivo(df):
         m_lr = LinearRegression().fit(X_train, y_train)
         r2_lr = r2_score(y_test, m_lr.predict(X_test))
         
-        if r2_rf > 0 and r2_rf > r2_lr: return m_rf, {"R2": r2_rf, "MAE": mean_absolute_error(y_test, m_rf.predict(X_test))}, "Random Forest (Aero)"
-        else: return m_lr, {"R2": r2_lr, "MAE": mean_absolute_error(y_test, m_lr.predict(X_test))}, "Linear Engine (Speed)"
+        if r2_rf > 0 and r2_rf > r2_lr: return m_rf, {"R2": r2_rf, "MAE": mean_absolute_error(y_test, m_rf.predict(X_test))}, "Random Forest (Complejo)"
+        else: return m_lr, {"R2": r2_lr, "MAE": mean_absolute_error(y_test, m_lr.predict(X_test))}, "Linear Engine (Tendencia)"
     except: return None, None, "Error"
 
 def predecir_cierre_mes(modelo, df_h, fecha_ultima):
@@ -253,18 +254,25 @@ def generar_reporte_pmv_whatsapp(df):
         if df.empty: return "https://wa.me/"
         anio = df['Año'].max()
         df_a = df[df['Año'] == anio]
-        msg = f"*🏎️ GARI TELEMETRY {anio}*\n📅 {df_a['Fecha'].max().strftime('%d/%m/%Y')}\n\n🏢 *TOTAL:* ${df_a['Valor'].sum():,.0f}\n"
+        msg = f"*🧠 GARI SECOND BRAIN - {anio}*\n📅 {df_a['Fecha'].max().strftime('%d/%m/%Y')}\n\n🏢 *TOTAL:* ${df_a['Valor'].sum():,.0f}\n"
         for z, v in df_a.groupby('ZONA')['Valor'].sum().sort_values(ascending=False).items(): msg += f"\n📍 *{z}*: ${v:,.0f}"
         return f"https://wa.me/?text={urllib.parse.quote(msg)}"
     except: return "https://wa.me/"
 
-# --- CARGA DATOS ---
-@st.cache_data(ttl=600)
+# --- CARGA DATOS (TURBO) ---
+@st.cache_data(ttl=3600, show_spinner="🔌 Conectando Neuronas (SQL)...")
 def cargar_datos_integrados():
     df_final = pd.DataFrame()
     try:
         conn = st.connection("sql", type="sql")
-        df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
+        
+        # 1. OPTIMIZACIÓN: Intenta traer solo columnas clave
+        try:
+            df = conn.query("SELECT Fecha, Sucursal, Valor FROM stg.Ingresos_Detallados", ttl=3600)
+        except:
+            # Fallback
+            df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=3600)
+            
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         df['Año'] = df['Fecha'].dt.year
@@ -274,14 +282,16 @@ def cargar_datos_integrados():
         df['Dia'] = df['DiaNum'].map(dias_es)
         df['Tx'] = 1 
         
+        # Zonas Incrustadas
         datos_zonas = {'CLINICAS': ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'PASEO VILLA DEL RIO', 'CENTRO MAYOR', 'MULTIPLAZA', 'SALITRE', 'UNICENTRO', 'ITAGUI', 'LA PLAYA', 'POBLADO', 'CALI CIUDAD JARDIN', 'CALLE 80', 'GRAN ESTACION', 'CEDRITOS', 'PORTAL 80', 'CENTRO', 'VILLAVICENCIO', 'KENNEDY', 'ROMA', 'VILLAS', 'ALAMOS', 'CALI AV 6TA', 'MALL PLAZA BOGOTA', 'CALI CALIMA', 'PLAZA DE LAS AMERICAS', 'SUBA PLAZA IMPERIAL', 'MALL PLAZA BARRANQUILLA', 'LA FLORESTA', 'PALMIRA', 'RESTREPO', 'MALL PLAZA CALI'], 'ZONA': ['ZONA 4', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 5', 'ZONA 3', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 4', 'ZONA 4', 'ZONA 2', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 1'], 'CIUDAD': ['BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'MEDELLÍN', 'MEDELLÍN', 'MEDELLÍN', 'CALI', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'VILLAVICENCIO', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'CALI', 'BOGOTÁ', 'CALI', 'BOGOTÁ', 'BOGOTÁ', 'BARRANQUILLA', 'MEDELLÍN', 'CALI', 'BOGOTÁ', 'CALI'], 'RED': ['PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'FRANQUICIA', 'FRANQUICIA', 'FRANQUICIA', 'PROPIA']}
         df_z = pd.DataFrame(datos_zonas)
         df['Sucursal_Upper'] = df['Sucursal'].str.upper().str.strip()
         df_z['CLINICAS'] = df_z['CLINICAS'].str.upper().str.strip()
         df_f = df.merge(df_z, left_on='Sucursal_Upper', right_on='CLINICAS', how='left')
-        df_f['ZONA'] = df_f['ZONA'].fillna('Sin Zona')
-        df_f['CIUDAD'] = df_f['CIUDAD'].fillna('Otras')
-        df_f['RED'] = df_f['RED'].fillna('No Def')
+        
+        # Relleno masivo
+        vals = {'ZONA':'Sin Zona', 'CIUDAD':'Otras', 'RED':'No Def'}
+        df_f.fillna(value=vals, inplace=True)
         return df_f
     except: return pd.DataFrame()
 
@@ -299,29 +309,28 @@ def analizar_gpt(df, p, k):
 with st.sidebar:
     st.markdown("""
     <div style="text-align: center; margin-bottom: 20px;">
-        <h2 style="color:#cc0000; border-bottom: 2px solid #fcd700; padding-bottom: 10px;">PIT WALL</h2>
+        <h2 style="color:#cc0000; border-bottom: 2px solid #fcd700; padding-bottom: 10px;">COMANDO</h2>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown(f"**👤 DRIVER:** `Conectado`")
-    if st.button("BOX BOX (LOGOUT)"):
+    st.markdown(f"**👤 USUARIO:** `Conectado`")
+    if st.button("CERRAR SESIÓN"):
         st.session_state.authenticated = False
         st.rerun()
     st.markdown("---")
     
-    # 🚨 AQUÍ ESTÁ LA MAGIA: CARGAR DATOS Y BOTÓN WA ANTES DE RENDERIZAR PÁGINAS 🚨
-    with st.spinner("Calentando..."): df_raw = cargar_datos_integrados()
+    with st.spinner("Cargando..."): df_raw = cargar_datos_integrados()
     
     if not df_raw.empty:
         link = generar_reporte_pmv_whatsapp(df_raw)
         st.markdown(f"""
         <a href="{link}" target="_blank">
             <button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">
-            📲 RADIO A BOXES (WhatsApp)
+            📲 REPORTE WHATSAPP
             </button>
         </a>
         """, unsafe_allow_html=True)
         
-    pagina = st.radio("MENÚ DE CARRERA", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🗺️ Track Map", "🧠 Ingeniero IA"])
+    pagina = st.radio("MENÚ PRINCIPAL", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🗺️ Mapa Geográfico", "🧠 Chat Gari IA"])
     
     if "OPENAI_API_KEY" in st.secrets: api_key = st.secrets["OPENAI_API_KEY"]
     else: api_key = st.text_input("🔑 API KEY:", type="password")
@@ -330,7 +339,7 @@ with st.sidebar:
 if pagina == "📊 Telemetría en Vivo":
     st.markdown("## 🏁 TELEMETRÍA DE COMANDO")
     if not df_raw.empty:
-        with st.expander("🛠️ CONFIGURACIÓN DE PISTA", expanded=True):
+        with st.expander("🛠️ CONFIGURACIÓN DE FILTROS", expanded=True):
             c1,c2,c3 = st.columns(3)
             sel_zona = c1.multiselect("SECTOR", sorted(df_raw['ZONA'].astype(str).unique()))
             df_v = df_raw[df_raw['ZONA'].isin(sel_zona)] if sel_zona else df_raw
@@ -356,9 +365,9 @@ if pagina == "📊 Telemetría en Vivo":
         k1,k2,k3 = st.columns(3)
         k1.metric(f"VENTAS {anio}", f"${v_a:,.0f}", f"{d_v:+.1f}%")
         k2.metric("TRANSACCIONES", f"{len(df_act):,}")
-        k3.metric("ÚLTIMA VUELTA", df_act['Fecha'].max().strftime('%d/%m/%Y'))
+        k3.metric("ÚLTIMA ACTUALIZACIÓN", df_act['Fecha'].max().strftime('%d/%m/%Y'))
         
-        st.markdown("#### ⏱️ TIEMPOS POR TEMPORADA")
+        st.markdown("#### ⏱️ HISTÓRICO DE TEMPORADAS")
         df_y = df_v.groupby('Año').agg(Ventas=('Valor','sum'), Tx=('Tx','sum')).sort_index(ascending=False)
         df_y['Delta'] = df_y['Ventas'].pct_change(-1)*100
         st.table(df_y.style.format({"Ventas":"${:,.0f}","Tx":"{:,.0f}","Delta":"{:.1f}%"}).applymap(color_negative_red, subset=['Delta']))
@@ -393,13 +402,13 @@ elif pagina == "🔮 Estrategia & Predicción":
         anio, mes = df_raw['Año'].max(), df_raw['Fecha'].max().month
         df_act = df_raw[df_raw['Año']==anio]
         
-        with st.expander("📂 VER HISTORIAL DE VUELTAS (2022-2025)", expanded=False):
+        with st.expander("📂 VER HISTORIA DE DATOS (2022-2025)", expanded=False):
             hist = df_raw.groupby('Fecha')['Valor'].sum().reset_index()
             fig, ax = plt.subplots(figsize=(10,3)); fig.patch.set_facecolor('#0E1117'); ax.set_facecolor('#0E1117')
             ax.plot(hist['Fecha'], hist['Valor'], color='#8fa1b3', linewidth=0.5); ax.tick_params(colors='white'); ax.set_title("Data Histórica", color='white')
             st.pyplot(fig)
             
-        with st.spinner("Compitiendo motores..."):
+        with st.spinner("Compitiendo modelos matemáticos..."):
             mod, met, nom = entrenar_modelo_predictivo(df_raw)
         
         if mod:
@@ -427,11 +436,11 @@ elif pagina == "🔮 Estrategia & Predicción":
             if diff >= 0: st.success(f"✅ ESTRATEGIA GANADORA: +${diff:,.0f}")
             else: st.error(f"⚠️ GAP: -${abs(diff):,.0f}")
 
-elif pagina == "🗺️ Track Map":
+elif pagina == "🗺️ Mapa Geográfico":
     st.markdown("## 🗺️ LOCALIZACIÓN DEL CIRCUITO"); st.map(pd.DataFrame({'lat': [4.6097], 'lon': [-74.0817]}))
 
-elif pagina == "🧠 Ingeniero IA":
-    st.markdown("## 📻 RADIO CHECK"); p = st.text_input("Consultar ingeniero...")
+elif pagina == "🧠 Chat Gari IA":
+    st.markdown("## 📻 RADIO CHECK"); p = st.text_input("Consultar Gari IA...")
     if st.button("COPY THAT") and api_key:
         txt, fig, tbl, _ = analizar_gpt(df_raw, p, api_key)
         if txt: st.info(txt)
