@@ -3,6 +3,7 @@ import pandas as pd
 import openai
 import io
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import urllib.parse
 import time
 import datetime
@@ -15,9 +16,9 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, r2_score
 
-# --- CONFIGURACIÓN DE PÁGINA (WIDE & DARK PRE-CONFIG) ---
+# --- CONFIGURACIÓN DE PÁGINA (WIDE & DARK) ---
 st.set_page_config(
-    page_title="Gari | Oracle Red Bull Data", 
+    page_title="Gari | Red Bull Racing Data", 
     page_icon="🏎️", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -39,14 +40,14 @@ st.markdown("""
         }
 
         /* TIPOGRAFÍA */
-        h1, h2, h3 {
+        h1, h2, h3, h4 {
             font-family: 'Orbitron', sans-serif !important;
             color: #ffffff !important;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
         
-        p, div, label {
+        p, div, label, span {
             font-family: 'Roboto', sans-serif;
             color: #e0e0e0;
         }
@@ -57,7 +58,7 @@ st.markdown("""
             border-left: 4px solid #cc0000; /* Rojo RB */
             padding: 15px;
             border-radius: 5px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
         div[data-testid="stMetricLabel"] {
             color: #8fa1b3 !important;
@@ -72,13 +73,13 @@ st.markdown("""
             color: #fcd700 !important; /* Amarillo RB */
         }
 
-        /* SIDEBAR (Estilo Fibra de Carbono) */
+        /* SIDEBAR */
         section[data-testid="stSidebar"] {
             background-color: #000000;
             border-right: 1px solid #333;
         }
 
-        /* BOTONES (Estilo Botones Volante F1) */
+        /* BOTONES */
         .stButton > button {
             background: linear-gradient(90deg, #cc0000 0%, #990000 100%);
             color: white;
@@ -94,34 +95,28 @@ st.markdown("""
             box-shadow: 0 0 10px rgba(204, 0, 0, 0.6);
         }
 
-        /* TABLAS */
-        .stDataFrame {
-            border: 1px solid #333;
-        }
-        
-        /* INPUTS */
-        .stTextInput > div > div > input {
+        /* EXPANDERS (Detalle Clínicas) */
+        .streamlit-expanderHeader {
             background-color: #151925;
             color: white;
-            border: 1px solid #444;
+            font-family: 'Orbitron', sans-serif;
+            border-bottom: 1px solid #cc0000;
         }
         
-        /* MENSAJES */
-        .stAlert {
-            background-color: #151925;
-            border: 1px solid #444;
+        /* TABLAS */
+        div[data-testid="stTable"] {
             color: white;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# --- GESTIÓN DE SESIÓN Y LOGIN (Estilo Paddock) ---
+# --- GESTIÓN DE SESIÓN Y LOGIN ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
 def check_password():
     def login_form():
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2:
             st.markdown("""
@@ -143,8 +138,8 @@ def check_password():
                 }
                 if usuario in usuarios_validos and usuarios_validos[usuario] == clave:
                     st.session_state.authenticated = True
-                    st.success("ACCESS GRANTED. WELCOME TO THE PADDOCK.")
-                    time.sleep(1)
+                    st.success("ACCESS GRANTED.")
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("ACCESS DENIED.")
@@ -161,7 +156,7 @@ if not check_password():
 # 🚀 APLICACIÓN PRINCIPAL
 # ==============================================================================
 
-# --- SIDEBAR: PIT WALL ---
+# --- SIDEBAR ---
 st.sidebar.markdown("### 🏎️ PIT WALL")
 st.sidebar.markdown(f"👨‍✈️ **Piloto:** Conectado")
 if st.sidebar.button("BOX BOX (Salir)"):
@@ -177,24 +172,30 @@ meses_es = {
 }
 dias_es = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
 
+def color_negative_red(val):
+    """Estilo para tablas (Rojo negativo, Blanco positivo en fondo oscuro)"""
+    if isinstance(val, (int, float)) and val < 0:
+        return 'color: #ff4b4b; font-weight: bold'
+    return 'color: #ffffff'
+
 # --- GRÁFICOS ESTILO DARK MODE (TELEMETRÍA) ---
 def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#cc0000', formato='dinero'):
     # Fondo oscuro para la figura
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor('#0E1117') # Mismo color que el fondo de la app o similar
+    fig, ax = plt.subplots(figsize=(10, 4))
+    fig.patch.set_facecolor('#0E1117') 
     ax.set_facecolor('#0E1117')
     
-    # Barras con borde brillante
+    # Barras
     bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='#fcd700', linewidth=0.5, alpha=0.9)
     
     # Etiquetas
     fmt = '${:,.0f}' if formato == 'dinero' else '{:,.0f}'
-    ax.bar_label(bars, fmt=fmt, padding=3, rotation=90, fontsize=10, fontweight='bold', color='white')
+    ax.bar_label(bars, fmt=fmt, padding=3, rotation=90, fontsize=9, fontweight='bold', color='white')
     
     # Ejes y textos en blanco
     ax.spines['bottom'].set_color('white')
     ax.spines['left'].set_color('white')
-    ax.tick_params(axis='x', colors='white')
+    ax.tick_params(axis='x', colors='white', rotation=0, labelsize=9)
     ax.tick_params(axis='y', colors='white')
     
     # Limpieza
@@ -203,12 +204,11 @@ def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#cc0000', form
     ax.spines['left'].set_visible(False)
     ax.get_yaxis().set_visible(False)
     
-    ax.set_title(titulo, fontsize=13, fontweight='bold', color='white', pad=20)
-    plt.xticks(rotation=0, fontsize=10)
+    ax.set_title(titulo, fontsize=12, fontweight='bold', color='white', pad=15)
     plt.tight_layout()
     return fig
 
-# --- FUNCIÓN IA HÍBRIDA ---
+# --- IA HÍBRIDA ---
 @st.cache_resource
 def entrenar_modelo_predictivo(df):
     try:
@@ -237,9 +237,9 @@ def entrenar_modelo_predictivo(df):
         r2_lr = r2_score(y_test, modelo_lr.predict(X_test))
 
         if r2_rf > 0 and r2_rf > r2_lr:
-            return modelo_rf, {"R2": r2_rf, "MAE": mean_absolute_error(y_test, modelo_rf.predict(X_test))}, "Random Forest (Aero Package)"
+            return modelo_rf, {"R2": r2_rf, "MAE": mean_absolute_error(y_test, modelo_rf.predict(X_test))}, "Random Forest (Aero)"
         else:
-            return modelo_lr, {"R2": r2_lr, "MAE": mean_absolute_error(y_test, modelo_lr.predict(X_test))}, "Linear Engine (Top Speed)"
+            return modelo_lr, {"R2": r2_lr, "MAE": mean_absolute_error(y_test, modelo_lr.predict(X_test))}, "Linear Engine (Speed)"
 
     except Exception as e:
         return None, None, "Engine Fail"
@@ -272,7 +272,7 @@ def predecir_cierre_mes(modelo, df_historico, fecha_ultima_real):
         return pd.DataFrame(df_predicciones), predicciones_sum
     except: return pd.DataFrame(), 0
 
-# --- REPORTE WA ---
+# --- REPORTE WA (FULL DATA) ---
 @st.cache_data(show_spinner=False) 
 def generar_reporte_pmv_whatsapp(df):
     try:
@@ -282,11 +282,19 @@ def generar_reporte_pmv_whatsapp(df):
         if df_act.empty: return "https://wa.me/"
 
         v_total = df_act['Valor'].sum()
-        mensaje = f"*🏎️ GARI TELEMETRY {anio_actual}*\n\n🏢 *TOTAL:* ${v_total:,.0f}\n"
-        
+        tx_total = len(df_act)
         df_zonas = df_act.groupby('ZONA')['Valor'].sum().sort_values(ascending=False)
-        for zona, valor in df_zonas.items():
-            mensaje += f"\n📍 *{zona}*: ${valor:,.0f}"
+        df_detalle = df_act.groupby(['ZONA', 'Sucursal'])['Valor'].sum().reset_index()
+        
+        mensaje = f"*🏎️ GARI TELEMETRY {anio_actual}*\n"
+        mensaje += f"📅 Lap: {df_act['Fecha'].max().strftime('%d/%m/%Y')}\n\n"
+        mensaje += f"🏢 *TOTAL TEAM*\n💰 ${v_total:,.0f}\n🧾 Tx: {tx_total:,.0f}\n➖➖➖➖➖\n"
+
+        for zona, valor_zona in df_zonas.items():
+            mensaje += f"\n📍 *{zona}*: ${valor_zona:,.0f}\n"
+            sucursales_zona = df_detalle[df_detalle['ZONA'] == zona].sort_values('Valor', ascending=False)
+            for _, row in sucursales_zona.iterrows():
+                mensaje += f"   • {row['Sucursal']}: ${row['Valor']:,.0f}\n"
 
         mensaje_codificado = urllib.parse.quote(mensaje)
         return f"https://wa.me/?text={mensaje_codificado}"
@@ -308,8 +316,8 @@ def cargar_datos_integrados():
         df['Mes'] = df['MesNum'].map(meses_es)
         df['DiaNum'] = df['Fecha'].dt.dayofweek
         df['Dia'] = df['DiaNum'].map(dias_es)
+        df['Tx'] = 1 
         
-        # ZONAS HARDCODED
         datos_zonas = {
             'CLINICAS': ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'PASEO VILLA DEL RIO', 'CENTRO MAYOR', 'MULTIPLAZA', 'SALITRE', 'UNICENTRO', 'ITAGUI', 'LA PLAYA', 'POBLADO', 'CALI CIUDAD JARDIN', 'CALLE 80', 'GRAN ESTACION', 'CEDRITOS', 'PORTAL 80', 'CENTRO', 'VILLAVICENCIO', 'KENNEDY', 'ROMA', 'VILLAS', 'ALAMOS', 'CALI AV 6TA', 'MALL PLAZA BOGOTA', 'CALI CALIMA', 'PLAZA DE LAS AMERICAS', 'SUBA PLAZA IMPERIAL', 'MALL PLAZA BARRANQUILLA', 'LA FLORESTA', 'PALMIRA', 'RESTREPO', 'MALL PLAZA CALI'], 
             'ZONA': ['ZONA 4', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 5', 'ZONA 3', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 4', 'ZONA 4', 'ZONA 2', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 1'], 
@@ -339,7 +347,7 @@ def analizar_con_gpt(df, pregunta, api_key):
         client = openai.OpenAI(api_key=api_key)
         buffer = io.StringIO()
         df.head(5).to_csv(buffer, index=False)
-        prompt_system = "Eres un ingeniero de datos de F1. Responde con código Python. Usa 'df'."
+        prompt_system = "Eres un ingeniero de datos de F1. Responde con código Python. Usa 'df'. Output: resultado, fig, tabla_resultados."
         prompt_user = f"Data: {buffer.getvalue()}\nPregunta: {pregunta}\nCode only."
         response = client.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":prompt_system},{"role":"user","content":prompt_user}], temperature=0)
         codigo = response.choices[0].message.content.replace("```python", "").replace("```", "").strip()
@@ -360,47 +368,128 @@ with st.spinner("Calentando neumáticos..."):
     df_raw = cargar_datos_integrados()
 
 # ==============================================================================
-# 📊 PÁGINA 1: TELEMETRÍA (COMANDO)
+# 📊 PÁGINA 1: TELEMETRÍA (COMANDO - FULL DATA RESTORED)
 # ==============================================================================
 if pagina == "📊 Telemetría en Vivo":
-    st.markdown("## 🏁 TELEMETRÍA DE VENTAS")
+    st.markdown("## 🏁 TELEMETRÍA DE COMANDO")
     
     if not df_raw.empty:
-        with st.expander("🛠️ CONFIGURACIÓN DE PISTA (FILTROS)", expanded=False):
+        # --- FILTROS ---
+        with st.expander("🛠️ CONFIGURACIÓN DE PISTA (FILTROS)", expanded=True):
             c1, c2, c3 = st.columns(3)
             opc_zona = sorted(df_raw['ZONA'].astype(str).unique())
             sel_zona = c1.multiselect("SECTOR (Zona)", opc_zona)
-            df_view = df_raw[df_raw['ZONA'].isin(sel_zona)] if sel_zona else df_raw
+            
+            df_temp = df_raw[df_raw['ZONA'].isin(sel_zona)] if sel_zona else df_raw
+            opc_ciudad = sorted(df_temp['CIUDAD'].astype(str).unique())
+            sel_ciudad = c2.multiselect("CIUDAD", opc_ciudad)
+            
+            df_temp2 = df_temp[df_temp['CIUDAD'].isin(sel_ciudad)] if sel_ciudad else df_temp
+            opc_red = sorted(df_temp2['RED'].astype(str).unique())
+            sel_red = c3.multiselect("RED", opc_red)
 
-        # KPIs
-        anio_actual = df_view['Año'].max()
-        df_act = df_view[df_view['Año'] == anio_actual]
-        v_act = df_act['Valor'].sum()
+        df_view = df_raw.copy()
+        if sel_zona: df_view = df_view[df_view['ZONA'].isin(sel_zona)]
+        if sel_ciudad: df_view = df_view[df_view['CIUDAD'].isin(sel_ciudad)]
+        if sel_red: df_view = df_view[df_view['RED'].isin(sel_red)]
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric(f"VENTAS {anio_actual}", f"${v_act:,.0f}", "Sector 1")
-        c2.metric("TRANSACCIONES", f"{len(df_act):,}", "Sector 2")
-        c3.metric("TICKET PROMEDIO", f"${v_act/len(df_act):,.0f}" if len(df_act)>0 else "0", "Sector 3")
+        if df_view.empty:
+            st.warning("⚠️ SAFETY CAR: No hay datos para estos filtros.")
+            st.stop()
+
+        # --- SELECTOR MÉTRICA ---
+        st.markdown("---")
+        col_t1, col_t2 = st.columns([2, 1])
+        with col_t2:
+            metrica = st.radio("VISUALIZAR:", ["Ventas ($)", "Transacciones (#)"], horizontal=True)
+            col_kpi = 'Valor' if metrica == "Ventas ($)" else 'Tx'
+            fmt_kpi = 'dinero' if metrica == "Ventas ($)" else 'numero'
+
+        # --- NIVEL 1: PULSO DE COMPAÑÍA (YTD) ---
+        st.markdown("### 🏎️ 1. PULSO DE COMPAÑÍA (YTD)")
+        
+        anio_actual = df_view['Año'].max()
+        anio_anterior = anio_actual - 1
+        df_act = df_view[df_view['Año'] == anio_actual]
+        fecha_max = df_act['Fecha'].max()
+        
+        # Comparativa YTD
+        fecha_limite_ant = fecha_max.replace(year=anio_anterior)
+        df_ant = df_view[(df_view['Año'] == anio_anterior) & (df_view['Fecha'] <= fecha_limite_ant)]
+        
+        v_act = df_act['Valor'].sum()
+        v_ant = df_ant['Valor'].sum()
+        delta_v = ((v_act - v_ant) / v_ant) * 100 if v_ant > 0 else 0
+        
+        tx_act = len(df_act)
+        tx_ant = len(df_ant)
+        delta_tx = ((tx_act - tx_ant) / tx_ant) * 100 if tx_ant > 0 else 0
+        
+        k1, k2, k3 = st.columns(3)
+        k1.metric(f"VENTAS {anio_actual}", f"${v_act:,.0f}", f"{delta_v:+.1f}% vs Año Ant")
+        k2.metric(f"TRANSACCIONES", f"{tx_act:,}", f"{delta_tx:+.1f}% vs Año Ant")
+        k3.metric("ÚLTIMA VUELTA", fecha_max.strftime('%d/%m/%Y'))
+
+        # --- TABLA COMPARATIVA ANUAL (Restaurada) ---
+        st.markdown("#### ⏱️ TIEMPOS POR TEMPORADA (HISTÓRICO)")
+        df_anual = df_view.groupby('Año').agg(Ventas=('Valor', 'sum'), Transacciones=('Tx', 'sum')).sort_index(ascending=False)
+        df_anual['Delta $'] = df_anual['Ventas'].pct_change(-1) * 100
+        st.table(df_anual.style.format({"Ventas": "${:,.0f}", "Transacciones": "{:,.0f}", "Delta $": "{:+.1f}%"}).applymap(color_negative_red, subset=['Delta $']))
 
         st.markdown("---")
         
-        # Gráficos
-        g1, g2 = st.columns(2)
-        with g1:
-            st.markdown("### 📈 RITMO DE CARRERA (MENSUAL)")
-            df_mes = df_act.groupby('Mes')['Valor'].sum().reset_index()
-            st.pyplot(graficar_barras_pro(df_mes, 'Mes', 'Valor', 'Evolución', '#cc0000'))
+        # --- NIVEL 2: GRÁFICOS GLOBALES ---
+        st.markdown(f"### 🏎️ 2. ANÁLISIS GLOBAL {anio_actual}")
         
-        with g2:
-            st.markdown("### 🏆 POSICIONES (ZONAS)")
-            df_z = df_act.groupby('ZONA')['Valor'].sum().reset_index().sort_values('Valor', ascending=False)
-            st.pyplot(graficar_barras_pro(df_z, 'ZONA', 'Valor', 'Ranking', '#fcd700'))
+        if not sel_zona or len(sel_zona) > 1:
+            st.markdown("**A. RANKING DE SECTORES (ZONAS)**")
+            df_z = df_act.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False)
+            st.pyplot(graficar_barras_pro(df_z, 'ZONA', col_kpi, f'Ranking {metrica}', '#fcd700', fmt_kpi))
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**B. RITMO MENSUAL**")
+            df_mes = df_act.groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
+            df_mes['Mes'] = df_mes['MesNum'].map(meses_es)
+            st.pyplot(graficar_barras_pro(df_mes, 'Mes', col_kpi, 'Mensual', '#cc0000', fmt_kpi))
+            
+        with c2:
+            st.markdown("**C. TRAZADO SEMANAL**")
+            df_dia = df_act.groupby(['DiaNum', 'Dia']).agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index().sort_values('DiaNum')
+            st.pyplot(graficar_barras_pro(df_dia, 'Dia', col_kpi, 'Semanal', '#2c3e50', fmt_kpi))
+
+        # --- NIVEL 3: DETALLE POR CLÍNICA (RESTAURADO) ---
+        st.markdown("---")
+        st.markdown("### 🏥 3. TELEMETRÍA DETALLADA (POR CLÍNICA)")
+        st.info("Despliega cada clínica para ver su telemetría individual.")
+        
+        sucursales = sorted(df_act['Sucursal'].unique())
+        for suc in sucursales:
+            info_suc = df_act[df_act['Sucursal'] == suc].iloc[0]
+            lbl = info_suc.get('ZONA', 'N/A')
+            
+            with st.expander(f"📍 {suc} ({lbl})", expanded=False):
+                df_suc = df_act[df_act['Sucursal'] == suc]
+                
+                # Gráficos Mini
+                m1, m2 = st.columns(2)
+                with m1:
+                    df_sm = df_suc.groupby('MesNum').agg({'Valor':'sum', 'Tx':'sum'}).reset_index()
+                    df_sm['Mes'] = df_sm['MesNum'].map(meses_es)
+                    st.pyplot(graficar_barras_pro(df_sm, 'Mes', col_kpi, 'Mensual', '#cc0000', fmt_kpi))
+                with m2:
+                    df_sd = df_suc.groupby(['DiaNum','Dia']).agg({'Valor':'sum', 'Tx':'sum'}).reset_index().sort_values('DiaNum')
+                    st.pyplot(graficar_barras_pro(df_sd, 'Dia', col_kpi, 'Semanal', '#8fa1b3', fmt_kpi))
+                
+                # Tabla Variación
+                df_sm['Var $'] = df_sm['Valor'].pct_change() * 100
+                st.table(df_sm[['Mes', 'Valor', 'Var $', 'Tx']].style.format({"Valor":"${:,.0f}", "Var $":"{:+.1f}%"}).applymap(color_negative_red, subset=['Var $']))
 
 # ==============================================================================
 # 🔮 PÁGINA 2: ESTRATEGIA (PREDICCIONES)
 # ==============================================================================
 elif pagina == "🔮 Estrategia & Predicción":
-    st.markdown("## 🔮 SIMULACIÓN DE CARRERA (IA)")
+    st.markdown("## 🔮 SIMULACIÓN DE ESTRATEGIA (IA)")
     
     if not df_raw.empty:
         anio_actual = df_raw['Año'].max()
@@ -408,16 +497,17 @@ elif pagina == "🔮 Estrategia & Predicción":
         mes_actual = df_act['Fecha'].max().month
         nombre_mes = meses_es[mes_actual]
         
-        with st.spinner("Corriendo simulaciones en el túnel de viento..."):
+        with st.spinner("Compitiendo motores de IA..."):
             modelo, metricas, nombre_modelo = entrenar_modelo_predictivo(df_raw)
         
         if modelo:
-            st.success(f"🏎️ MOTOR SELECCIONADO: **{nombre_modelo}**")
+            st.success(f"🏎️ MOTOR GANADOR: **{nombre_modelo}**")
             
             # Auditoría
-            m1, m2 = st.columns(2)
-            m1.metric("PRECISIÓN MOTOR (R²)", f"{metricas['R2']:.2f}")
-            m2.metric("MARGEN ERROR (MAE)", f"${metricas['MAE']:,.0f}")
+            with st.expander("📊 DATOS DE INGENIERÍA (AUDITORÍA)", expanded=True):
+                m1, m2 = st.columns(2)
+                m1.metric("PRECISIÓN (R²)", f"{metricas['R2']:.2f}", help="Cercano a 1.0 es mejor")
+                m2.metric("MARGEN ERROR (MAE)", f"${metricas['MAE']:,.0f}")
             
             # Proyección
             fecha_max = df_act['Fecha'].max()
@@ -429,13 +519,28 @@ elif pagina == "🔮 Estrategia & Predicción":
             k1, k2, k3 = st.columns(3)
             k1.metric("VUELTAS COMPLETADAS (HOY)", f"${venta_hoy:,.0f}")
             k2.metric("RESTO DE CARRERA (PRED)", f"${suma_futura:,.0f}")
-            k3.metric("TIEMPO FINAL ESTIMADO", f"${cierre:,.0f}", delta="Puesto 1")
+            k3.metric("TIEMPO FINAL ESTIMADO", f"${cierre:,.0f}", delta="IA Projection")
+            
+            # Gráfico Predicción
+            if not df_pred.empty:
+                st.markdown("#### 📅 TRAZADO FUTURO")
+                df_pred['Día'] = df_pred['Fecha'].dt.day
+                fig, ax = plt.subplots(figsize=(10, 3))
+                fig.patch.set_facecolor('#0E1117')
+                ax.set_facecolor('#0E1117')
+                ax.plot(df_pred['Día'], df_pred['Predicción'], marker='o', linestyle='--', color='#27ae60')
+                ax.set_title("Ritmo Esperado (Días Restantes)", color='white')
+                ax.tick_params(colors='white')
+                ax.spines['bottom'].set_color('white')
+                ax.spines['left'].set_color('white')
+                st.pyplot(fig)
             
             # Meta
+            st.markdown("---")
             meta = st.number_input(f"🎯 TIEMPO OBJETIVO (META {nombre_mes})", value=float(cierre*1.05))
             diff = cierre - meta
-            if diff >= 0: st.success(f"✅ ESTRATEGIA GANADORA: +${diff:,.0f}")
-            else: st.error(f"⚠️ PELIGRO: GAP DE -${abs(diff):,.0f}")
+            if diff >= 0: st.success(f"✅ ESTRATEGIA GANADORA: Superávit de +${diff:,.0f}")
+            else: st.error(f"⚠️ PELIGRO: GAP DE -${abs(diff):,.0f} para la meta")
 
 # ==============================================================================
 # 🗺️ PÁGINA 3: MAPA
