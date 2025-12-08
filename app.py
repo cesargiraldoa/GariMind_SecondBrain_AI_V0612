@@ -6,62 +6,64 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import urllib.parse
 import time
+import datetime
+import calendar
+import numpy as np
+
+# --- LIBRERÍAS DE MACHINE LEARNING ---
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
+st.set_page_config(page_title="Comando y Control", page_icon="📊", layout="wide")
 
 # --- GESTIÓN DE SESIÓN Y LOGIN ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
 def check_password():
-    """Retorna True si el usuario/clave son correctos."""
     def login_form():
-        st.title("🔒 Acceso Seguro - Gari AI")
-        st.write("Por favor, inicie sesión para ver los datos de Dentisalud.")
-        
+        st.title("🔒 Acceso Corporativo")
+        st.write("Reporte de Comando y Control - Inicie Sesión")
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             usuario = st.text_input("Usuario")
             clave = st.text_input("Contraseña", type="password")
-            
             if st.button("Ingresar 🔐"):
-                # --- USUARIOS CONFIGURADOS ---
                 usuarios_validos = {
                     "gerente": "alivio2025", 
                     "admin": "admin123",
                     "gari": "hamster"
                 }
-                
                 if usuario in usuarios_validos and usuarios_validos[usuario] == clave:
                     st.session_state.authenticated = True
-                    st.success("Acceso concedido. Cargando...")
-                    time.sleep(1)
+                    st.success("Validando credenciales...")
+                    time.sleep(0.5)
                     st.rerun()
                 else:
-                    st.error("Usuario o contraseña incorrectos.")
+                    st.error("Credenciales inválidas.")
 
     if not st.session_state.authenticated:
         login_form()
         return False
     return True
 
-# --- SI NO ESTÁ AUTENTICADO, SE DETIENE AQUÍ ---
 if not check_password():
     st.stop()
 
 # ==============================================================================
-# 🚀 COMIENZO DE LA APLICACIÓN (SOLO VISIBLE SI LOGIN OK)
+# 🚀 APLICACIÓN PRINCIPAL
 # ==============================================================================
 
-# --- LOGOUT EN SIDEBAR ---
-st.sidebar.markdown(f"👤 **Usuario:** Conectado")
+# --- SIDEBAR ---
+st.sidebar.markdown(f"👤 **Usuario:** Activo")
 if st.sidebar.button("Cerrar Sesión 🔒"):
     st.session_state.authenticated = False
     st.rerun()
 st.sidebar.markdown("---")
 
-# --- HERRAMIENTAS Y DICCIONARIOS ---
+# --- HERRAMIENTAS ---
 meses_es = {
     1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
     5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
@@ -70,14 +72,12 @@ meses_es = {
 
 dias_es = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
 
-# --- ESTILOS CSS ---
 def color_negative_red(val):
     if isinstance(val, (int, float)) and val < 0:
         return 'color: #ff4b4b; font-weight: bold'
     return 'color: black'
 
-# --- FUNCIÓN GRÁFICA ESTÁNDAR ---
-def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db', formato='dinero'):
+def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#2c3e50', formato='dinero'):
     fig, ax = plt.subplots(figsize=(10, 5))
     bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='none', alpha=0.9)
     fmt = '${:,.0f}' if formato == 'dinero' else '{:,.0f}'
@@ -94,57 +94,130 @@ def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db', form
     plt.tight_layout()
     return fig
 
-# --- FUNCIÓN REPORTE PMV COMPLETO (WHATSAPP) ---
-# 🔥 OPTIMIZACIÓN CRÍTICA: @st.cache_data para evitar recalcular y colgar la app
+# --- FUNCIÓN INTELIGENCIA ARTIFICIAL (SCIKIT-LEARN) ---
+@st.cache_resource
+def entrenar_modelo_predictivo(df):
+    """
+    Entrena un modelo Random Forest con los datos históricos.
+    Retorna: modelo, métricas, datos de test.
+    """
+    try:
+        # 1. Preparar Datos para ML
+        # Agrupamos por fecha para tener venta diaria total
+        df_ml = df.groupby('Fecha')['Valor'].sum().reset_index()
+        
+        # Ingeniería de Características (Features)
+        df_ml['DiaNum'] = df_ml['Fecha'].dt.dayofweek
+        df_ml['DiaMes'] = df_ml['Fecha'].dt.day
+        df_ml['Mes'] = df_ml['Fecha'].dt.month
+        df_ml['EsFinDeSemana'] = df_ml['DiaNum'].apply(lambda x: 1 if x >= 5 else 0)
+        # Lag (Venta de ayer) - ayuda a capturar tendencias inmediatas
+        df_ml['Lag_1'] = df_ml['Valor'].shift(1).fillna(0)
+        
+        # Eliminamos primera fila por el Lag vacío
+        df_ml = df_ml.iloc[1:]
+
+        if len(df_ml) < 10:
+            return None, None # Muy pocos datos para entrenar
+
+        X = df_ml[['DiaNum', 'DiaMes', 'Mes', 'EsFinDeSemana', 'Lag_1']]
+        y = df_ml['Valor']
+
+        # 2. Split Train/Test (80% entrenar, 20% validar)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+
+        # 3. Entrenar Random Forest
+        modelo = RandomForestRegressor(n_estimators=100, random_state=42)
+        modelo.fit(X_train, y_train)
+
+        # 4. Evaluar
+        y_pred = modelo.predict(X_test)
+        mae = mean_absolute_error(y_test, y_pred)
+        r2 = r2_score(y_test, y_pred)
+        
+        metrics = {"MAE": mae, "R2": r2}
+        
+        return modelo, metrics
+    except Exception as e:
+        print(f"Error ML: {e}")
+        return None, None
+
+def predecir_cierre_mes(modelo, df_historico, fecha_ultima_real):
+    """Usa el modelo entrenado para predecir los días restantes del mes."""
+    anio = fecha_ultima_real.year
+    mes = fecha_ultima_real.month
+    _, last_day = calendar.monthrange(anio, mes)
+    fecha_fin_mes = pd.Timestamp(anio, mes, last_day)
+    
+    # Generar rango de fechas futuras (desde mañana hasta fin de mes)
+    fecha_inicio_futuro = fecha_ultima_real + pd.Timedelta(days=1)
+    
+    if fecha_inicio_futuro > fecha_fin_mes:
+        return pd.DataFrame(), 0 # Ya acabó el mes
+    
+    rango_futuro = pd.date_range(start=fecha_inicio_futuro, end=fecha_fin_mes)
+    
+    futuro_data = []
+    ultima_venta_conocida = df_historico.groupby('Fecha')['Valor'].sum().iloc[-1]
+    
+    predicciones_sum = 0
+    df_predicciones = []
+
+    # Predicción iterativa (Rolling Forecast)
+    # Necesitamos predecir el día 1 para usarlo como 'Lag' del día 2, etc.
+    lag_actual = ultima_venta_conocida
+    
+    for fecha in rango_futuro:
+        features = {
+            'DiaNum': fecha.dayofweek,
+            'DiaMes': fecha.day,
+            'Mes': fecha.month,
+            'EsFinDeSemana': 1 if fecha.dayofweek >= 5 else 0,
+            'Lag_1': lag_actual
+        }
+        X_futuro = pd.DataFrame([features])
+        pred = modelo.predict(X_futuro)[0]
+        
+        # Guardamos para el reporte y para el siguiente lag
+        predicciones_sum += pred
+        lag_actual = pred 
+        
+        df_predicciones.append({'Fecha': fecha, 'Predicción': pred})
+    
+    return pd.DataFrame(df_predicciones), predicciones_sum
+
+# --- REPORTE WA ---
 @st.cache_data(show_spinner=False) 
 def generar_reporte_pmv_whatsapp(df):
     try:
         if df.empty: return "https://wa.me/"
         anio_actual = df['Año'].max()
-        df_act = df[df['Año'] == anio_actual].copy() # Usamos copy para no afectar original
+        df_act = df[df['Año'] == anio_actual].copy()
         
         if df_act.empty: return "https://wa.me/"
 
-        # Pre-calcular agrupamientos (Mucho más rápido que filtrar en bucle)
-        # Nivel 1: Total
         v_total = df_act['Valor'].sum()
         tx_total = len(df_act)
-        
-        # Nivel 2: Agrupado por Zonas
         df_zonas = df_act.groupby('ZONA')['Valor'].sum().sort_values(ascending=False)
-        
-        # Nivel 3: Agrupado por Zona y Sucursal (Pre-calculado)
         df_detalle = df_act.groupby(['ZONA', 'Sucursal'])['Valor'].sum().reset_index()
         
-        # --- CONSTRUCCIÓN DEL MENSAJE ---
-        mensaje = f"*🐹 REPORTE PMV - DENTISALUD {anio_actual}*\n"
+        mensaje = f"*📊 REPORTE COMANDO Y CONTROL {anio_actual}*\n"
         mensaje += f"📅 Corte: {df_act['Fecha'].max().strftime('%d/%m/%Y')}\n\n"
-        
         mensaje += f"🏢 *TOTAL COMPAÑÍA*\n"
         mensaje += f"💰 Venta: ${v_total:,.0f}\n"
         mensaje += f"🧾 Tx: {tx_total:,.0f}\n"
-        mensaje += "➖➖➖➖➖➖➖➖\n" # Quitamos salto extra para ahorrar espacio URL
+        mensaje += "➖➖➖➖➖➖➖➖\n"
 
-        # Iteración optimizada
         for zona, valor_zona in df_zonas.items():
             mensaje += f"\n📍 *{zona}*: ${valor_zona:,.0f}\n"
-            
-            # Filtramos sobre el dataframe PEQUEÑO pre-agrupado (rápido)
             sucursales_zona = df_detalle[df_detalle['ZONA'] == zona].sort_values('Valor', ascending=False)
-            
             for _, row in sucursales_zona.iterrows():
-                # Limite de seguridad: WhatsApp a veces falla con URLs muy largas.
-                # Opcional: Podríamos poner un break aquí si son demasiadas clínicas.
                 mensaje += f"   • {row['Sucursal']}: ${row['Valor']:,.0f}\n"
 
-        mensaje += "\n_Generado por Gari AI_ 🐹"
-        
-        # Codificar URL (safe para caracteres especiales)
+        mensaje += "\n_Generado por Sistema de Comando_ 🤖"
         mensaje_codificado = urllib.parse.quote(mensaje)
         return f"https://wa.me/?text={mensaje_codificado}"
-        
     except Exception as e:
-        print(f"Error generando reporte WA: {e}")
         return "https://wa.me/"
 
 # --- CARGA DE DATOS ---
@@ -192,7 +265,7 @@ def cargar_datos_integrados():
         st.error(f"Error Carga: {e}")
         return pd.DataFrame()
 
-# --- FUNCIÓN CHAT ---
+# --- CHAT ---
 def analizar_con_gpt(df, pregunta, api_key):
     try:
         client = openai.OpenAI(api_key=api_key)
@@ -204,7 +277,7 @@ def analizar_con_gpt(df, pregunta, api_key):
         info_cols = df.dtypes.to_string()
         
         prompt_system = """
-        Eres Gari. Output rules: 'resultado', 'tabla_resultados', 'fig'. Code only.
+        Eres un analista de datos experto. Output rules: 'resultado', 'tabla_resultados', 'fig'. Code only.
         """
         prompt_user = f"Info: {info_cols}\nMuestra: {muestra}\nPregunta: {pregunta}\nCode only."
         
@@ -215,58 +288,34 @@ def analizar_con_gpt(df, pregunta, api_key):
         return (local_vars.get('resultado', None), local_vars.get('fig', None), local_vars.get('tabla_resultados', None), codigo)
     except Exception as e: return f"Error: {e}", None, None, ""
 
-# --- INTERFAZ PRINCIPAL ---
-st.sidebar.image("https://img.freepik.com/premium-photo/cute-hamster-face-portrait_1029469-218417.jpg", width=120, caption="Gari 🐹")
-pagina = st.sidebar.radio("Navegación", ["🧠 Chat con Gari", "📊 Reportes Ejecutivos BI", "🗺️ Mapa"])
+# --- NAVEGACIÓN ---
+pagina = st.sidebar.radio("Navegación", ["📊 Reporte Comando y Control", "🔮 Predicciones AI", "🗺️ Mapa", "🧠 Chat IA"])
 
 if "OPENAI_API_KEY" in st.secrets:
     api_key = st.secrets["OPENAI_API_KEY"]
 else:
     api_key = st.sidebar.text_input("🔑 API Key:", type="password")
 
-with st.spinner("Cargando cerebro de Gari..."):
+with st.spinner("Conectando con base de datos..."):
     df_raw = cargar_datos_integrados()
 
 # ==============================================================================
-# PÁGINA 1: CHAT
+# PÁGINA: REPORTE COMANDO Y CONTROL
 # ==============================================================================
-if pagina == "🧠 Chat con Gari":
-    st.title("Hola soy Gari tu segundo cerebro extendido")
-    st.write("### Haz preguntas a tus datos")
+if pagina == "📊 Reporte Comando y Control":
+    st.title("Reporte de Comando y Control")
     
     if not df_raw.empty:
-        st.caption(f"Datos hasta: {df_raw['Fecha'].max().strftime('%d/%m/%Y')}")
-        pregunta = st.text_input("Consulta:", "Cual fue la Zona con mayor venta en 2025?")
-        
-        if st.button("Analizar"):
-            if api_key:
-                with st.spinner("Pensando..."):
-                    res_txt, res_fig, res_tabla, cod = analizar_con_gpt(df_raw, pregunta, api_key)
-                    if res_txt: st.success(f"📌 {res_txt}")
-                    else: st.warning("Sin respuesta textual.")
-                    if res_tabla is not None: st.dataframe(res_tabla)
-                    if res_fig: st.pyplot(res_fig)
-                    with st.expander("Ver código"): st.code(cod)
-            else: st.error("Falta API Key")
-
-# ==============================================================================
-# PÁGINA 2: REPORTES BI
-# ==============================================================================
-elif pagina == "📊 Reportes Ejecutivos BI":
-    st.title("📊 Tablero de Comando Gerencial")
-    
-    if not df_raw.empty:
-        # --- FILTROS ---
-        with st.expander("🔍 Filtros Globales (Zona / Ciudad / Red)", expanded=True):
-            c_f1, c_f2, c_f3 = st.columns(3)
+        with st.expander("🔍 Filtros de Visualización", expanded=False):
+            c1, c2, c3 = st.columns(3)
             opc_zona = sorted(df_raw['ZONA'].astype(str).unique())
-            sel_zona = c_f1.multiselect("Zona", opc_zona)
+            sel_zona = c1.multiselect("Zona", opc_zona)
             df_temp = df_raw[df_raw['ZONA'].isin(sel_zona)] if sel_zona else df_raw
             opc_ciudad = sorted(df_temp['CIUDAD'].astype(str).unique())
-            sel_ciudad = c_f2.multiselect("Ciudad", opc_ciudad)
+            sel_ciudad = c2.multiselect("Ciudad", opc_ciudad)
             df_temp2 = df_temp[df_temp['CIUDAD'].isin(sel_ciudad)] if sel_ciudad else df_temp
             opc_red = sorted(df_temp2['RED'].astype(str).unique())
-            sel_red = c_f3.multiselect("Red", opc_red)
+            sel_red = c3.multiselect("Red", opc_red)
 
         df_view = df_raw.copy()
         if sel_zona: df_view = df_view[df_view['ZONA'].isin(sel_zona)]
@@ -274,124 +323,187 @@ elif pagina == "📊 Reportes Ejecutivos BI":
         if sel_red: df_view = df_view[df_view['RED'].isin(sel_red)]
             
         if df_view.empty:
-            st.warning("⚠️ Sin datos para estos filtros.")
+            st.warning("Sin datos para los filtros seleccionados.")
             st.stop()
 
-        # --- KPI's ---
-        st.markdown("---")
-        col_t1, col_t2 = st.columns([2, 1])
+        # KPIs
+        st.markdown("### 1. Pulso del Negocio (YTD)")
+        col_t1, col_t2 = st.columns([3, 1])
         with col_t2:
-            metrica_grafico = st.radio("📊 Métrica:", ["Ventas ($)", "Transacciones (#)"], horizontal=True)
-            col_kpi = 'Valor' if metrica_grafico == "Ventas ($)" else 'Tx'
-            fmt_kpi = 'dinero' if metrica_grafico == "Ventas ($)" else 'numero'
-            color_kpi = '#3498db' if metrica_grafico == "Ventas ($)" else '#8e44ad'
+            metrica = st.selectbox("Métrica:", ["Ventas ($)", "Transacciones (#)"])
+            col_kpi = 'Valor' if metrica == "Ventas ($)" else 'Tx'
+            fmt_kpi = 'dinero' if metrica == "Ventas ($)" else 'numero'
 
-        st.header("1. Pulso del Negocio (Comparativo YTD)")
         anio_actual = df_view['Año'].max()
         anio_anterior = anio_actual - 1
-        df_actual = df_view[df_view['Año'] == anio_actual]
-        fecha_max_actual = df_actual['Fecha'].max()
-        fecha_limite_anterior = fecha_max_actual.replace(year=anio_anterior)
-        df_anterior = df_view[(df_view['Año'] == anio_anterior) & (df_view['Fecha'] <= fecha_limite_anterior)]
+        df_act = df_view[df_view['Año'] == anio_actual]
+        fecha_max = df_act['Fecha'].max()
         
-        v_act = df_actual['Valor'].sum()
-        v_ant = df_anterior['Valor'].sum()
+        fecha_limite_ant = fecha_max.replace(year=anio_anterior)
+        df_ant = df_view[(df_view['Año'] == anio_anterior) & (df_view['Fecha'] <= fecha_limite_ant)]
+        
+        v_act = df_act['Valor'].sum()
+        v_ant = df_ant['Valor'].sum()
         delta_v = ((v_act - v_ant) / v_ant) * 100 if v_ant > 0 else 0
-        tx_act = len(df_actual)
-        tx_ant = len(df_anterior)
+        
+        tx_act = len(df_act)
+        tx_ant = len(df_ant)
         delta_tx = ((tx_act - tx_ant) / tx_ant) * 100 if tx_ant > 0 else 0
-        tk = v_act / tx_act if tx_act > 0 else 0
         
         k1, k2, k3 = st.columns(3)
-        k1.metric(f"Ventas {anio_actual} (YTD)", f"${v_act:,.0f}", f"{delta_v:+.1f}%")
-        k2.metric(f"Transacciones (YTD)", f"{tx_act:,}", f"{delta_tx:+.1f}%")
-        k3.metric("Ticket Promedio", f"${tk:,.0f}")
-        
-        # --- TABLA COMPARATIVA ---
-        st.subheader("📈 Tabla Comparativa Histórica")
-        df_anual = df_view.groupby('Año').agg(Ventas=('Valor', 'sum'), Transacciones=('Tx', 'sum')).sort_index(ascending=False)
-        df_anual['Crec. Ventas %'] = df_anual['Ventas'].pct_change(-1) * 100
-        df_anual['Crec. Tx %'] = df_anual['Transacciones'].pct_change(-1) * 100
-        st.table(df_anual[['Ventas', 'Crec. Ventas %', 'Transacciones', 'Crec. Tx %']].style.format({"Ventas": "${:,.0f}", "Transacciones": "{:,.0f}", "Crec. Ventas %": "{:+.1f}%", "Crec. Tx %": "{:+.1f}%"}).applymap(color_negative_red, subset=['Crec. Ventas %', 'Crec. Tx %']))
-        
-        # --- GRÁFICOS ---
-        st.markdown("---")
-        st.header(f"2. Análisis Global {anio_actual}")
-        if not sel_zona or len(sel_zona) > 1:
-            st.subheader("A. Desempeño por Zona")
-            df_z = df_actual.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False)
-            fig_z = graficar_barras_pro(df_z, 'ZONA', col_kpi, 'Ranking Zonas', '#e67e22', fmt_kpi)
-            st.pyplot(fig_z)
+        k1.metric(f"Ventas {anio_actual}", f"${v_act:,.0f}", f"{delta_v:+.1f}% vs Año Ant")
+        k2.metric(f"Transacciones", f"{tx_act:,}", f"{delta_tx:+.1f}% vs Año Ant")
+        k3.metric("Última Actualización", fecha_max.strftime('%d/%m/%Y'))
 
+        st.markdown("---")
+        
         c_g1, c_g2 = st.columns(2)
         with c_g1:
-            st.subheader("B. Evolución Mensual")
-            df_mes = df_actual.groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
+            st.subheader("Evolución Mensual")
+            df_mes = df_act.groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
             df_mes['Mes'] = df_mes['MesNum'].map(meses_es)
-            fig_mes = graficar_barras_pro(df_mes, 'Mes', col_kpi, 'Mensual', color_kpi, fmt_kpi)
-            st.pyplot(fig_mes)
+            st.pyplot(graficar_barras_pro(df_mes, 'Mes', col_kpi, f'Tendencia {metrica}', '#2c3e50', fmt_kpi))
+            
         with c_g2:
-            st.subheader("C. Patrón Semanal")
-            df_dias = df_actual.groupby(['DiaNum', 'Dia']).agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index().sort_values('DiaNum')
-            fig_dias = graficar_barras_pro(df_dias, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi)
-            st.pyplot(fig_dias)
+            st.subheader("Ranking por Zona")
+            df_z = df_act.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False)
+            st.pyplot(graficar_barras_pro(df_z, 'ZONA', col_kpi, f'Top Zonas {metrica}', '#e67e22', fmt_kpi))
 
-        # --- DETALLE CLINICAS ---
         st.markdown("---")
-        st.header("🏥 3. Análisis por Clínica (Detalle)")
-        sucursales_filtradas = sorted(df_actual['Sucursal'].unique())
-        for suc in sucursales_filtradas:
-            info_suc = df_actual[df_actual['Sucursal'] == suc].iloc[0]
-            label_zona = info_suc.get('ZONA', 'N/A')
-            with st.expander(f"📍 {suc} ({label_zona})", expanded=False):
-                df_suc = df_actual[df_actual['Sucursal'] == suc]
-                c1, c2 = st.columns(2)
-                with c1:
-                    df_s_mes = df_suc.groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
-                    df_s_mes['Mes'] = df_s_mes['MesNum'].map(meses_es)
-                    st.pyplot(graficar_barras_pro(df_s_mes, 'Mes', col_kpi, 'Mensual', color_kpi, fmt_kpi))
-                with c2:
-                    df_s_dia = df_suc.groupby(['DiaNum', 'Dia']).agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index().sort_values('DiaNum')
-                    st.pyplot(graficar_barras_pro(df_s_dia, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi))
-                df_s_mes['Var $'] = df_s_mes['Valor'].pct_change() * 100
-                df_s_mes['Var Tx'] = df_s_mes['Tx'].pct_change() * 100
-                st.table(df_s_mes[['Mes', 'Valor', 'Var $', 'Tx', 'Var Tx']].style.format({"Valor": "${:,.0f}", "Var $": "{:+.1f}%", "Tx": "{:,.0f}", "Var Tx": "{:+.1f}%"}).applymap(color_negative_red, subset=['Var $', 'Var Tx']))
+        st.subheader("Detalle Operativo por Clínica")
+        with st.expander("Ver Tabla Completa", expanded=False):
+            st.dataframe(df_act.groupby(['ZONA', 'Sucursal'])[['Valor', 'Tx']].sum().sort_values('Valor', ascending=False))
 
 # ==============================================================================
-# PÁGINA 3: MAPA
+# PÁGINA: PREDICCIONES AI (RANDOM FOREST)
+# ==============================================================================
+elif pagina == "🔮 Predicciones AI":
+    st.title("🔮 Modelo Predictivo IA (Random Forest)")
+    
+    if not df_raw.empty:
+        # 1. Preparación de Datos
+        anio_actual = df_raw['Año'].max()
+        df_act = df_raw[df_raw['Año'] == anio_actual]
+        mes_actual = df_act['Fecha'].max().month
+        nombre_mes = meses_es[mes_actual]
+        fecha_max = df_act['Fecha'].max()
+        
+        st.markdown(f"### 🤖 Entrenamiento del Modelo Predictivo")
+        st.write("El sistema está analizando patrones históricos (Día de la semana, estacionalidad mensual y tendencias recientes) usando un algoritmo de **Bosques Aleatorios (Random Forest)**.")
+        
+        with st.spinner("Entrenando red neuronal simplificada..."):
+            modelo, metricas = entrenar_modelo_predictivo(df_raw)
+        
+        if modelo:
+            # Mostrar Métricas de Calidad
+            st.success("Modelo entrenado exitosamente.")
+            
+            with st.expander("📊 Ver Métricas de Confianza del Modelo (Auditoría Técnica)", expanded=True):
+                m1, m2 = st.columns(2)
+                r2_val = metricas['R2']
+                mae_val = metricas['MAE']
+                
+                m1.metric("R² (Precisión de Varianza)", f"{r2_val:.2f}", help="Indica qué tan bien el modelo replica los patrones históricos. 1.0 es perfecto, 0.0 es aleatorio.")
+                m2.metric("MAE (Margen de Error Diario)", f"${mae_val:,.0f}", help="Promedio de error en pesos que el modelo puede tener por día.")
+                
+                if r2_val > 0.7:
+                    st.caption("✅ **Modelo Confiable:** El R² indica una alta capacidad predictiva.")
+                elif r2_val > 0.4:
+                    st.caption("⚠️ **Modelo Regular:** Puede servir como guía, pero con cautela.")
+                else:
+                    st.caption("❌ **Modelo No Confiable:** Faltan datos históricos para patrones claros.")
+
+            # --- PROYECCIÓN ---
+            st.markdown("---")
+            st.header(f"1. Proyección de Cierre ({nombre_mes})")
+            
+            df_pred, suma_futura = predecir_cierre_mes(modelo, df_raw, fecha_max)
+            
+            venta_acumulada_hoy = df_act[df_act['MesNum'] == mes_actual]['Valor'].sum()
+            
+            if not df_pred.empty:
+                cierre_estimado = venta_acumulada_hoy + suma_futura
+                
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Venta Real (Hoy)", f"${venta_acumulada_hoy:,.0f}")
+                k2.metric("Predicción Días Restantes", f"${suma_futura:,.0f}", f"{len(df_pred)} días")
+                k3.metric("Cierre Estimado IA", f"${cierre_estimado:,.0f}", delta="Modelo ML")
+                
+                # Gráfico de la Predicción
+                st.subheader("📅 Calendario Predictivo")
+                df_pred['Día'] = df_pred['Fecha'].dt.day
+                
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.plot(df_pred['Día'], df_pred['Predicción'], marker='o', linestyle='--', color='#27ae60', label='Predicción IA')
+                ax.set_title("Comportamiento Esperado para el Resto del Mes")
+                ax.set_xlabel("Día del Mes")
+                ax.set_ylabel("Venta Proyectada")
+                ax.grid(True, alpha=0.3)
+                st.pyplot(fig)
+            else:
+                st.success(f"🏁 Mes terminado. Cierre Total: ${venta_acumulada_hoy:,.0f}")
+                cierre_estimado = venta_acumulada_hoy
+
+            # --- CONTROL DE METAS ---
+            st.markdown("---")
+            st.header("2. Control vs Meta")
+            
+            c_meta1, c_meta2 = st.columns([1, 2])
+            with c_meta1:
+                meta_input = st.number_input(f"Define tu Meta para {nombre_mes} ($)", value=float(cierre_estimado * 1.05), step=1000000.0)
+            
+            with c_meta2:
+                diff = cierre_estimado - meta_input
+                pct_cumplimiento = (cierre_estimado / meta_input) * 100
+                
+                st.metric("Cumplimiento Proyectado (IA)", f"{pct_cumplimiento:.1f}%", f"${diff:,.0f} vs Meta")
+                
+                if diff < 0:
+                    st.warning(f"⚠️ La IA predice que faltarán **${abs(diff):,.0f}** para la meta.")
+                else:
+                    st.success("🚀 La IA predice que superarás la meta.")
+
+        else:
+            st.warning("No hay suficientes datos históricos para entrenar la IA (mínimo 10 días).")
+
+# ==============================================================================
+# PÁGINA: MAPA
 # ==============================================================================
 elif pagina == "🗺️ Mapa":
-    st.title("Mapa SQL")
-    try:
-        conn = st.connection("sql", type="sql")
-        st.dataframe(conn.query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES"))
-    except: st.error("Error SQL")
+    st.title("Mapa de Cobertura")
+    st.map(pd.DataFrame({'lat': [4.6097], 'lon': [-74.0817]}))
+    st.info("Visualización geográfica de puntos de venta.")
 
 # ==============================================================================
-# BOTÓN WHATSAPP (PMV)
+# PÁGINA: CHAT IA
+# ==============================================================================
+elif pagina == "🧠 Chat IA":
+    st.title("Asistente de Inteligencia Artificial")
+    st.write("Haz preguntas libres sobre tus datos.")
+    
+    if not df_raw.empty:
+        pregunta = st.text_input("Pregunta:", "¿Cuál fue el mejor día de ventas?")
+        if st.button("Consultar"):
+            if api_key:
+                with st.spinner("Analizando..."):
+                    res_txt, res_fig, res_tabla, cod = analizar_con_gpt(df_raw, pregunta, api_key)
+                    if res_txt: st.success(res_txt)
+                    if res_tabla is not None: st.dataframe(res_tabla)
+                    if res_fig: st.pyplot(res_fig)
+            else:
+                st.error("Requiere API Key")
+
+# ==============================================================================
+# BOTÓN WHATSAPP
 # ==============================================================================
 if not df_raw.empty:
     st.sidebar.markdown("---")
-    st.sidebar.header("📲 Reporte Gerencial")
-    
-    # Generamos el reporte usando la función cacheada
+    st.sidebar.header("📲 Comunicación")
     link_wa = generar_reporte_pmv_whatsapp(df_raw)
-    
     st.sidebar.markdown(f"""
     <a href="{link_wa}" target="_blank">
-        <button style="
-            background-color:#25D366; 
-            color:white; 
-            border:none; 
-            padding:10px 20px; 
-            border-radius:5px; 
-            font-weight:bold; 
-            cursor:pointer;
-            width:100%;">
-            Generar Reporte PMV 🚀
+        <button style="background-color:#25D366; color:white; border:none; padding:10px; border-radius:5px; width:100%; font-weight:bold;">
+        📤 Enviar Reporte Gerencial
         </button>
     </a>
-    <div style="text-align:center; margin-top:5px; font-size:0.8em; color:gray;">
-        Reporte Completo: Compañía > Zonas > Clínicas
-    </div>
     """, unsafe_allow_html=True)
