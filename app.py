@@ -4,7 +4,7 @@ import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import urllib.parse  # <--- Librería para generar links de WhatsApp
+import urllib.parse  # Librería para link de WhatsApp
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
@@ -20,7 +20,6 @@ dias_es = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 
 
 # --- ESTILOS CSS ---
 def color_negative_red(val):
-    """Pone en rojo los valores negativos y en negro los positivos"""
     if isinstance(val, (int, float)) and val < 0:
         return 'color: #ff4b4b; font-weight: bold'
     return 'color: black'
@@ -28,87 +27,85 @@ def color_negative_red(val):
 # --- FUNCIÓN GRÁFICA ESTÁNDAR ---
 def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db', formato='dinero'):
     fig, ax = plt.subplots(figsize=(10, 5))
-    
-    # Barras
     bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='none', alpha=0.9)
-    
-    # Etiquetas Verticales
     fmt = '${:,.0f}' if formato == 'dinero' else '{:,.0f}'
     ax.bar_label(bars, fmt=fmt, padding=3, rotation=90, fontsize=10, fontweight='bold', color='#2c3e50')
-    
-    # Techo gráfico
     if not df_g.empty:
         y_max = df_g[y_col].max()
         ax.set_ylim(0, y_max * 1.4)
-    
-    # Limpieza visual
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
     ax.get_yaxis().set_visible(False)
-    
     ax.set_title(titulo, fontsize=13, fontweight='bold', color='#2c3e50', pad=20)
     plt.xticks(rotation=0, fontsize=10)
     plt.tight_layout()
     return fig
 
-# --- FUNCIÓN GENERAR LINK WHATSAPP ---
-def generar_link_whatsapp(df):
+# --- NUEVO: FUNCIÓN REPORTE PMV COMPLETO ---
+def generar_reporte_pmv_whatsapp(df):
     try:
-        # Calcular KPIs del Año Actual (o lo que esté filtrado)
-        if df.empty:
-            return "https://wa.me/"
-            
+        # 1. Filtrar solo el Año Actual
+        if df.empty: return "https://wa.me/"
         anio_actual = df['Año'].max()
-        df_actual = df[df['Año'] == anio_actual]
+        df_act = df[df['Año'] == anio_actual]
         
-        if df_actual.empty:
-             return "https://wa.me/"
+        if df_act.empty: return "https://wa.me/"
 
-        venta_tot = df_actual['Valor'].sum()
-        tx_tot = len(df_actual)
-        ticket = venta_tot / tx_tot if tx_tot > 0 else 0
+        # --- NIVEL 1: TOTAL COMPAÑÍA ---
+        v_total = df_act['Valor'].sum()
+        tx_total = len(df_act)
         
-        # Identificar Top Zona
-        if 'ZONA' in df_actual.columns:
-            # Agrupar y buscar la mejor
-            top_zona_id = df_actual.groupby('ZONA')['Valor'].sum().idxmax()
-            venta_zona = df_actual.groupby('ZONA')['Valor'].sum().max()
-            top_zona_txt = f"{top_zona_id} (${venta_zona:,.0f})"
-        else:
-            top_zona_txt = "N/A"
+        mensaje = f"*🐹 REPORTE PMV - DENTISALUD {anio_actual}*\n"
+        mensaje += f"📅 Corte: {df_act['Fecha'].max().strftime('%d/%m/%Y')}\n\n"
+        mensaje += f"🏢 *TOTAL COMPAÑÍA*\n"
+        mensaje += f"💰 Venta: ${v_total:,.0f}\n"
+        mensaje += f"🧾 Tx: {tx_total:,.0f}\n"
+        mensaje += "➖➖➖➖➖➖➖➖\n\n"
 
-        # Construir Mensaje
-        mensaje = f"""*🐹 REPORTE GARI - DENTISALUD*
-📅 *Corte:* {anio_actual}
+        # --- NIVEL 2: TOTAL POR ZONA ---
+        mensaje += f"📍 *ACUMULADO POR ZONA*\n"
+        # Agrupamos por Zona y ordenamos de mayor a menor venta
+        df_zonas = df_act.groupby('ZONA')['Valor'].sum().sort_values(ascending=False)
+        
+        for zona, valor in df_zonas.items():
+            mensaje += f"🔹 {zona}: ${valor:,.0f}\n"
+        
+        mensaje += "➖➖➖➖➖➖➖➖\n\n"
 
-💰 *Venta (YTD):* ${venta_tot:,.0f}
-🧾 *Tx:* {tx_tot:,.0f}
-💳 *Ticket Prom:* ${ticket:,.0f}
+        # --- NIVEL 3: DETALLE POR CLÍNICA (AGRUPADO) ---
+        mensaje += f"🏥 *DETALLE POR CLÍNICA*\n"
+        
+        # Iteramos por cada Zona para mantener el orden
+        for zona in df_zonas.index:
+            mensaje += f"\n🔸 *{zona}*\n"
+            # Filtramos clínicas de esa zona y ordenamos por venta
+            df_cli = df_act[df_act['ZONA'] == zona].groupby('Sucursal')['Valor'].sum().sort_values(ascending=False)
+            
+            for sucursal, venta in df_cli.items():
+                mensaje += f"   • {sucursal}: ${venta:,.0f}\n"
 
-🏆 *Zona Líder:* {top_zona_txt}
+        mensaje += "\n_Generado por Gari AI_ 🐹"
 
-_Reporte generado automáticamente_ 🚀"""
-
+        # Codificar URL
         mensaje_codificado = urllib.parse.quote(mensaje)
         return f"https://wa.me/?text={mensaje_codificado}"
+        
     except Exception as e:
-        print(f"Error generando link: {e}")
+        print(f"Error WA: {e}")
         return "https://wa.me/"
 
-# --- CARGA DE DATOS (SQL + ZONAS INCRUSTADAS) ---
+# --- CARGA DE DATOS ---
 @st.cache_data(ttl=600)
 def cargar_datos_integrados():
     df_final = pd.DataFrame()
     try:
-        # 1. Cargar Datos SQL
         conn = st.connection("sql", type="sql")
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
         
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         
-        # Columnas BI
         df['Año'] = df['Fecha'].dt.year
         df['MesNum'] = df['Fecha'].dt.month
         df['Mes'] = df['MesNum'].map(meses_es)
@@ -116,7 +113,6 @@ def cargar_datos_integrados():
         df['Dia'] = df['DiaNum'].map(dias_es)
         df['Tx'] = 1 
         
-        # 2. DATOS MAESTROS ZONAS (HARDCODED)
         datos_zonas = {
             'CLINICAS': ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'PASEO VILLA DEL RIO', 'CENTRO MAYOR', 'MULTIPLAZA', 'SALITRE', 'UNICENTRO', 'ITAGUI', 'LA PLAYA', 'POBLADO', 'CALI CIUDAD JARDIN', 'CALLE 80', 'GRAN ESTACION', 'CEDRITOS', 'PORTAL 80', 'CENTRO', 'VILLAVICENCIO', 'KENNEDY', 'ROMA', 'VILLAS', 'ALAMOS', 'CALI AV 6TA', 'MALL PLAZA BOGOTA', 'CALI CALIMA', 'PLAZA DE LAS AMERICAS', 'SUBA PLAZA IMPERIAL', 'MALL PLAZA BARRANQUILLA', 'LA FLORESTA', 'PALMIRA', 'RESTREPO', 'MALL PLAZA CALI'], 
             'ZONA': ['ZONA 4', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 5', 'ZONA 3', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 4', 'ZONA 4', 'ZONA 2', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 1'], 
@@ -125,18 +121,13 @@ def cargar_datos_integrados():
         }
         df_zonas = pd.DataFrame(datos_zonas)
         
-        # 3. Merge
         try:
             df['Sucursal_Upper'] = df['Sucursal'].str.upper().str.strip()
             df_zonas['CLINICAS'] = df_zonas['CLINICAS'].str.upper().str.strip()
-            
             df_final = df.merge(df_zonas, left_on='Sucursal_Upper', right_on='CLINICAS', how='left')
-            
-            # Relleno de nulos
             df_final['ZONA'] = df_final['ZONA'].fillna('Sin Zona')
             df_final['CIUDAD'] = df_final['CIUDAD'].fillna('Otras')
             df_final['RED'] = df_final['RED'].fillna('No Def')
-            
         except Exception as e:
             st.warning(f"Error cruce zonas: {e}")
             df_final = df
@@ -145,7 +136,6 @@ def cargar_datos_integrados():
             df_final['RED'] = 'General'
 
         return df_final
-        
     except Exception as e:
         st.error(f"Error Carga: {e}")
         return pd.DataFrame()
@@ -155,26 +145,19 @@ def analizar_con_gpt(df, pregunta, api_key):
     try:
         client = openai.OpenAI(api_key=api_key)
         buffer = io.StringIO()
-        
         cols_export = ['Fecha', 'Sucursal', 'Valor', 'ZONA', 'CIUDAD', 'RED'] 
         cols_existentes = [c for c in cols_export if c in df.columns]
-        
         df[cols_existentes].head(5).to_csv(buffer, index=False)
         muestra = buffer.getvalue()
         info_cols = df.dtypes.to_string()
         
         prompt_system = """
-        Eres Gari. Usa 'df'. Reglas:
-        1. Columna fecha 'Fecha'.
-        2. Negocio: 'ZONA', 'CIUDAD', 'Sucursal', 'Valor', 'RED'.
-        3. Outputs obligatorios: 'resultado' (str), 'tabla_resultados' (df), 'fig' (plt).
-        4. Código Python puro.
+        Eres Gari. Output rules: 'resultado', 'tabla_resultados', 'fig'. Code only.
         """
         prompt_user = f"Info: {info_cols}\nMuestra: {muestra}\nPregunta: {pregunta}\nCode only."
         
         response = client.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":prompt_system},{"role":"user","content":prompt_user}], temperature=0)
         codigo = response.choices[0].message.content.replace("```python", "").replace("```", "").strip()
-        
         local_vars = {'df': df, 'pd': pd, 'plt': plt, 'ticker': ticker, 'meses_es': meses_es}
         exec(codigo, globals(), local_vars)
         return (local_vars.get('resultado', None), local_vars.get('fig', None), local_vars.get('tabla_resultados', None), codigo)
@@ -191,8 +174,6 @@ else:
 
 with st.spinner("Cargando cerebro de Gari..."):
     df_raw = cargar_datos_integrados()
-    # Inicializamos el DataFrame para WhatsApp con los datos crudos
-    df_whatsapp = df_raw.copy() 
 
 # ==============================================================================
 # PÁGINA 1: CHAT
@@ -223,23 +204,18 @@ elif pagina == "📊 Reportes Ejecutivos BI":
     st.title("📊 Tablero de Comando Gerencial")
     
     if not df_raw.empty:
-        
-        # --- FILTROS GLOBALES ---
+        # --- FILTROS ---
         with st.expander("🔍 Filtros Globales (Zona / Ciudad / Red)", expanded=True):
             c_f1, c_f2, c_f3 = st.columns(3)
-            
             opc_zona = sorted(df_raw['ZONA'].astype(str).unique())
             sel_zona = c_f1.multiselect("Zona", opc_zona)
-            
             df_temp = df_raw[df_raw['ZONA'].isin(sel_zona)] if sel_zona else df_raw
             opc_ciudad = sorted(df_temp['CIUDAD'].astype(str).unique())
             sel_ciudad = c_f2.multiselect("Ciudad", opc_ciudad)
-            
             df_temp2 = df_temp[df_temp['CIUDAD'].isin(sel_ciudad)] if sel_ciudad else df_temp
             opc_red = sorted(df_temp2['RED'].astype(str).unique())
             sel_red = c_f3.multiselect("Red", opc_red)
 
-        # Aplicar Filtros
         df_view = df_raw.copy()
         if sel_zona: df_view = df_view[df_view['ZONA'].isin(sel_zona)]
         if sel_ciudad: df_view = df_view[df_view['CIUDAD'].isin(sel_ciudad)]
@@ -248,11 +224,8 @@ elif pagina == "📊 Reportes Ejecutivos BI":
         if df_view.empty:
             st.warning("⚠️ Sin datos para estos filtros.")
             st.stop()
-            
-        # ACTUALIZAR DATOS PARA WHATSAPP CON LO FILTRADO
-        df_whatsapp = df_view.copy()
 
-        # --- SELECTOR DE MÉTRICA ---
+        # --- KPI's ---
         st.markdown("---")
         col_t1, col_t2 = st.columns([2, 1])
         with col_t2:
@@ -261,29 +234,20 @@ elif pagina == "📊 Reportes Ejecutivos BI":
             fmt_kpi = 'dinero' if metrica_grafico == "Ventas ($)" else 'numero'
             color_kpi = '#3498db' if metrica_grafico == "Ventas ($)" else '#8e44ad'
 
-        # --- 1. PULSO DEL NEGOCIO (KPIs con Delta) ---
         st.header("1. Pulso del Negocio (Comparativo YTD)")
-        
         anio_actual = df_view['Año'].max()
         anio_anterior = anio_actual - 1
-        
-        # Datos Actuales
         df_actual = df_view[df_view['Año'] == anio_actual]
         fecha_max_actual = df_actual['Fecha'].max()
         fecha_limite_anterior = fecha_max_actual.replace(year=anio_anterior)
-        
-        # Datos Año Anterior
         df_anterior = df_view[(df_view['Año'] == anio_anterior) & (df_view['Fecha'] <= fecha_limite_anterior)]
         
-        # Métricas
         v_act = df_actual['Valor'].sum()
         v_ant = df_anterior['Valor'].sum()
         delta_v = ((v_act - v_ant) / v_ant) * 100 if v_ant > 0 else 0
-        
         tx_act = len(df_actual)
         tx_ant = len(df_anterior)
         delta_tx = ((tx_act - tx_ant) / tx_ant) * 100 if tx_ant > 0 else 0
-        
         tk = v_act / tx_act if tx_act > 0 else 0
         
         k1, k2, k3 = st.columns(3)
@@ -291,41 +255,22 @@ elif pagina == "📊 Reportes Ejecutivos BI":
         k2.metric(f"Transacciones (YTD)", f"{tx_act:,}", f"{delta_tx:+.1f}%")
         k3.metric("Ticket Promedio", f"${tk:,.0f}")
         
-        # --- NUEVA: TABLA COMPARATIVA ANUAL ---
+        # --- TABLA COMPARATIVA ---
         st.subheader("📈 Tabla Comparativa Histórica")
-        
-        df_anual = df_view.groupby('Año').agg(
-            Ventas=('Valor', 'sum'),
-            Transacciones=('Tx', 'sum')
-        ).sort_index(ascending=False)
-        
+        df_anual = df_view.groupby('Año').agg(Ventas=('Valor', 'sum'), Transacciones=('Tx', 'sum')).sort_index(ascending=False)
         df_anual['Crec. Ventas %'] = df_anual['Ventas'].pct_change(-1) * 100
         df_anual['Crec. Tx %'] = df_anual['Transacciones'].pct_change(-1) * 100
+        st.table(df_anual[['Ventas', 'Crec. Ventas %', 'Transacciones', 'Crec. Tx %']].style.format({"Ventas": "${:,.0f}", "Transacciones": "{:,.0f}", "Crec. Ventas %": "{:+.1f}%", "Crec. Tx %": "{:+.1f}%"}).applymap(color_negative_red, subset=['Crec. Ventas %', 'Crec. Tx %']))
         
-        df_anual = df_anual[['Ventas', 'Crec. Ventas %', 'Transacciones', 'Crec. Tx %']]
-        
-        st.table(
-            df_anual.style.format({
-                "Ventas": "${:,.0f}",
-                "Transacciones": "{:,.0f}",
-                "Crec. Ventas %": "{:+.1f}%",
-                "Crec. Tx %": "{:+.1f}%"
-            }).applymap(color_negative_red, subset=['Crec. Ventas %', 'Crec. Tx %'])
-        )
-        
+        # --- GRÁFICOS ---
         st.markdown("---")
-        
-        # --- 2. ANÁLISIS GLOBAL ---
         st.header(f"2. Análisis Global {anio_actual}")
-        
-        # A) Gráfico Zonas
         if not sel_zona or len(sel_zona) > 1:
             st.subheader("A. Desempeño por Zona")
             df_z = df_actual.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False)
             fig_z = graficar_barras_pro(df_z, 'ZONA', col_kpi, 'Ranking Zonas', '#e67e22', fmt_kpi)
             st.pyplot(fig_z)
 
-        # B) Mensual y Semanal
         c_g1, c_g2 = st.columns(2)
         with c_g1:
             st.subheader("B. Evolución Mensual")
@@ -333,56 +278,32 @@ elif pagina == "📊 Reportes Ejecutivos BI":
             df_mes['Mes'] = df_mes['MesNum'].map(meses_es)
             fig_mes = graficar_barras_pro(df_mes, 'Mes', col_kpi, 'Mensual', color_kpi, fmt_kpi)
             st.pyplot(fig_mes)
-        
         with c_g2:
             st.subheader("C. Patrón Semanal")
             df_dias = df_actual.groupby(['DiaNum', 'Dia']).agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index().sort_values('DiaNum')
             fig_dias = graficar_barras_pro(df_dias, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi)
             st.pyplot(fig_dias)
 
-        # --- 3. ANÁLISIS POR CLÍNICA ---
+        # --- DETALLE CLINICAS ---
         st.markdown("---")
         st.header("🏥 3. Análisis por Clínica (Detalle)")
-        st.info("Despliega cada clínica para ver su detalle individual. Responde a los filtros globales.")
-
         sucursales_filtradas = sorted(df_actual['Sucursal'].unique())
-        
-        if not sucursales_filtradas:
-            st.warning("No hay clínicas para mostrar con los filtros actuales.")
-
         for suc in sucursales_filtradas:
             info_suc = df_actual[df_actual['Sucursal'] == suc].iloc[0]
             label_zona = info_suc.get('ZONA', 'N/A')
-            
             with st.expander(f"📍 {suc} ({label_zona})", expanded=False):
                 df_suc = df_actual[df_actual['Sucursal'] == suc]
-                
                 c1, c2 = st.columns(2)
-                
-                # Gráficos Sucursal
                 with c1:
                     df_s_mes = df_suc.groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
                     df_s_mes['Mes'] = df_s_mes['MesNum'].map(meses_es)
-                    fig_sm = graficar_barras_pro(df_s_mes, 'Mes', col_kpi, 'Mensual', color_kpi, fmt_kpi)
-                    st.pyplot(fig_sm)
-                    
+                    st.pyplot(graficar_barras_pro(df_s_mes, 'Mes', col_kpi, 'Mensual', color_kpi, fmt_kpi))
                 with c2:
                     df_s_dia = df_suc.groupby(['DiaNum', 'Dia']).agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index().sort_values('DiaNum')
-                    fig_sd = graficar_barras_pro(df_s_dia, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi)
-                    st.pyplot(fig_sd)
-                
-                # Tabla Sucursal
+                    st.pyplot(graficar_barras_pro(df_s_dia, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi))
                 df_s_mes['Var $'] = df_s_mes['Valor'].pct_change() * 100
                 df_s_mes['Var Tx'] = df_s_mes['Tx'].pct_change() * 100
-                
-                st.table(
-                    df_s_mes[['Mes', 'Valor', 'Var $', 'Tx', 'Var Tx']].style
-                    .format({
-                        "Valor": "${:,.0f}", "Var $": "{:+.1f}%", 
-                        "Tx": "{:,.0f}", "Var Tx": "{:+.1f}%"
-                    })
-                    .applymap(color_negative_red, subset=['Var $', 'Var Tx'])
-                )
+                st.table(df_s_mes[['Mes', 'Valor', 'Var $', 'Tx', 'Var Tx']].style.format({"Valor": "${:,.0f}", "Var $": "{:+.1f}%", "Tx": "{:,.0f}", "Var Tx": "{:+.1f}%"}).applymap(color_negative_red, subset=['Var $', 'Var Tx']))
 
 # ==============================================================================
 # PÁGINA 3: MAPA
@@ -395,14 +316,14 @@ elif pagina == "🗺️ Mapa":
     except: st.error("Error SQL")
 
 # ==============================================================================
-# RENDERIZADO FINAL DEL BOTÓN WHATSAPP (EN SIDEBAR)
+# RENDERIZADO DEL BOTÓN WHATSAPP (PMV)
 # ==============================================================================
-# Se coloca al final para asegurarse de usar el 'df_whatsapp' ya filtrado si aplica
 if not df_raw.empty:
     st.sidebar.markdown("---")
-    st.sidebar.header("📲 Reporte a Gerentes")
+    st.sidebar.header("📲 Reporte Gerencial")
     
-    link_wa = generar_link_whatsapp(df_whatsapp)
+    # Usamos df_raw para generar el reporte completo de la compañía, independiente de los filtros visuales
+    link_wa = generar_reporte_pmv_whatsapp(df_raw)
     
     st.sidebar.markdown(f"""
     <a href="{link_wa}" target="_blank">
@@ -415,10 +336,10 @@ if not df_raw.empty:
             font-weight:bold; 
             cursor:pointer;
             width:100%;">
-            Enviar Reporte WhatsApp 🚀
+            Generar Reporte PMV 🚀
         </button>
     </a>
     <div style="text-align:center; margin-top:5px; font-size:0.8em; color:gray;">
-        Genera reporte del año en curso con los filtros actuales.
+        Reporte Completo: Compañía > Zonas > Clínicas
     </div>
     """, unsafe_allow_html=True)
