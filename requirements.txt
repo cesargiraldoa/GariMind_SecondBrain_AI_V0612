@@ -5,3 +5,5 @@ pymssql
 openpyxl
 openai
 matplotlib
+scikit-learn
+numpy
