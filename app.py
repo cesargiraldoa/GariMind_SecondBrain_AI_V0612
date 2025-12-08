@@ -32,7 +32,7 @@ st.markdown("""
         /* Importar fuente futurista */
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap');
 
-        /* FONDO PRINCIPAL - Azul Oscuro Mate RB */
+        /* FONDO PRINCIPAL */
         .stApp {
             background-color: #060818;
             background-image: linear-gradient(180deg, #060818 0%, #0b1026 100%);
@@ -47,36 +47,25 @@ st.markdown("""
             letter-spacing: 1px;
         }
         
-        p, div, label, span {
+        p, div, label, span, td {
             font-family: 'Roboto', sans-serif;
             color: #e0e0e0;
         }
 
-        /* KPI CARDS (Estilo Telemetría) */
+        /* KPI CARDS */
         div[data-testid="stMetric"] {
             background-color: #151925;
-            border-left: 4px solid #cc0000; /* Rojo RB */
+            border-left: 4px solid #cc0000;
             padding: 15px;
             border-radius: 5px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
-        div[data-testid="stMetricLabel"] {
-            color: #8fa1b3 !important;
-            font-size: 0.9rem !important;
-        }
         div[data-testid="stMetricValue"] {
-            color: #ffffff !important;
             font-family: 'Orbitron', sans-serif !important;
-            font-size: 1.8rem !important;
+            color: #ffffff !important;
         }
         div[data-testid="stMetricDelta"] {
-            color: #fcd700 !important; /* Amarillo RB */
-        }
-
-        /* SIDEBAR */
-        section[data-testid="stSidebar"] {
-            background-color: #000000;
-            border-right: 1px solid #333;
+            color: #fcd700 !important;
         }
 
         /* BOTONES */
@@ -87,7 +76,6 @@ st.markdown("""
             border-radius: 4px;
             font-family: 'Orbitron', sans-serif;
             font-weight: bold;
-            text-transform: uppercase;
             transition: all 0.3s ease;
         }
         .stButton > button:hover {
@@ -95,20 +83,27 @@ st.markdown("""
             box-shadow: 0 0 10px rgba(204, 0, 0, 0.6);
         }
 
-        /* EXPANDERS (Detalle Clínicas) */
-        .streamlit-expanderHeader {
-            background-color: #151925;
-            color: white;
-            font-family: 'Orbitron', sans-serif;
-            border-bottom: 1px solid #cc0000;
-        }
-        
-        /* TABLAS */
-        div[data-testid="stTable"] {
-            color: white;
+        /* TABLAS - Ajuste para que el texto sea blanco por defecto */
+        .stTable {
+            color: white !important;
         }
     </style>
 """, unsafe_allow_html=True)
+
+# --- FUNCIÓN COLOR ROJO CORREGIDA ---
+def color_negative_red(val):
+    """
+    Pone en rojo los valores negativos.
+    Usa !important para forzar el estilo sobre el tema oscuro.
+    """
+    try:
+        # Verificamos si es negativo de forma robusta
+        if val < 0:
+            return 'color: #ff4b4b !important; font-weight: bold'
+        else:
+            return 'color: #ffffff !important'
+    except:
+        return 'color: #ffffff !important'
 
 # --- GESTIÓN DE SESIÓN Y LOGIN ---
 if 'authenticated' not in st.session_state:
@@ -172,33 +167,22 @@ meses_es = {
 }
 dias_es = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
 
-def color_negative_red(val):
-    """Estilo para tablas (Rojo negativo, Blanco positivo en fondo oscuro)"""
-    if isinstance(val, (int, float)) and val < 0:
-        return 'color: #ff4b4b; font-weight: bold'
-    return 'color: #ffffff'
-
-# --- GRÁFICOS ESTILO DARK MODE (TELEMETRÍA) ---
+# --- GRÁFICOS ESTILO DARK MODE ---
 def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#cc0000', formato='dinero'):
-    # Fondo oscuro para la figura
     fig, ax = plt.subplots(figsize=(10, 4))
     fig.patch.set_facecolor('#0E1117') 
     ax.set_facecolor('#0E1117')
     
-    # Barras
     bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='#fcd700', linewidth=0.5, alpha=0.9)
     
-    # Etiquetas
     fmt = '${:,.0f}' if formato == 'dinero' else '{:,.0f}'
     ax.bar_label(bars, fmt=fmt, padding=3, rotation=90, fontsize=9, fontweight='bold', color='white')
     
-    # Ejes y textos en blanco
     ax.spines['bottom'].set_color('white')
     ax.spines['left'].set_color('white')
     ax.tick_params(axis='x', colors='white', rotation=0, labelsize=9)
     ax.tick_params(axis='y', colors='white')
     
-    # Limpieza
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
@@ -430,11 +414,16 @@ if pagina == "📊 Telemetría en Vivo":
         k2.metric(f"TRANSACCIONES", f"{tx_act:,}", f"{delta_tx:+.1f}% vs Año Ant")
         k3.metric("ÚLTIMA VUELTA", fecha_max.strftime('%d/%m/%Y'))
 
-        # --- TABLA COMPARATIVA ANUAL (Restaurada) ---
+        # --- TABLA COMPARATIVA ANUAL (Restaurada & Color Fixed) ---
         st.markdown("#### ⏱️ TIEMPOS POR TEMPORADA (HISTÓRICO)")
         df_anual = df_view.groupby('Año').agg(Ventas=('Valor', 'sum'), Transacciones=('Tx', 'sum')).sort_index(ascending=False)
         df_anual['Delta $'] = df_anual['Ventas'].pct_change(-1) * 100
-        st.table(df_anual.style.format({"Ventas": "${:,.0f}", "Transacciones": "{:,.0f}", "Delta $": "{:+.1f}%"}).applymap(color_negative_red, subset=['Delta $']))
+        
+        st.table(df_anual.style.format({
+            "Ventas": "${:,.0f}", 
+            "Transacciones": "{:,.0f}", 
+            "Delta $": "{:+.1f}%"
+        }).applymap(color_negative_red, subset=['Delta $']))
 
         st.markdown("---")
         
@@ -481,9 +470,12 @@ if pagina == "📊 Telemetría en Vivo":
                     df_sd = df_suc.groupby(['DiaNum','Dia']).agg({'Valor':'sum', 'Tx':'sum'}).reset_index().sort_values('DiaNum')
                     st.pyplot(graficar_barras_pro(df_sd, 'Dia', col_kpi, 'Semanal', '#8fa1b3', fmt_kpi))
                 
-                # Tabla Variación
+                # Tabla Variación con ROJO
                 df_sm['Var $'] = df_sm['Valor'].pct_change() * 100
-                st.table(df_sm[['Mes', 'Valor', 'Var $', 'Tx']].style.format({"Valor":"${:,.0f}", "Var $":"{:+.1f}%"}).applymap(color_negative_red, subset=['Var $']))
+                st.table(df_sm[['Mes', 'Valor', 'Var $', 'Tx']].style.format({
+                    "Valor":"${:,.0f}", 
+                    "Var $":"{:+.1f}%"
+                }).applymap(color_negative_red, subset=['Var $']))
 
 # ==============================================================================
 # 🔮 PÁGINA 2: ESTRATEGIA (PREDICCIONES)
@@ -497,6 +489,18 @@ elif pagina == "🔮 Estrategia & Predicción":
         mes_actual = df_act['Fecha'].max().month
         nombre_mes = meses_es[mes_actual]
         
+        # --- NUEVA VISUALIZACIÓN DE HISTORIA ---
+        with st.expander("📂 VER HISTORIAL DE VUELTAS (2022-2025)", expanded=False):
+            st.caption("Validación de datos históricos usados para el entrenamiento:")
+            historia_diaria = df_raw.groupby('Fecha')['Valor'].sum().reset_index()
+            fig_h, ax_h = plt.subplots(figsize=(10, 3))
+            fig_h.patch.set_facecolor('#0E1117') 
+            ax_h.set_facecolor('#0E1117')
+            ax_h.plot(historia_diaria['Fecha'], historia_diaria['Valor'], color='#8fa1b3', linewidth=0.5)
+            ax_h.set_title("HISTÓRICO COMPLETO", color='white')
+            ax_h.tick_params(colors='white')
+            st.pyplot(fig_h)
+
         with st.spinner("Compitiendo motores de IA..."):
             modelo, metricas, nombre_modelo = entrenar_modelo_predictivo(df_raw)
         
