@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🎨 CSS BLINDADO (ESTILO GARI RACING + PODIO)
+# 🎨 CSS BLINDADO (ESTILO GARI RACING + SPINNER FIX)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -129,6 +129,14 @@ st.markdown("""
             background-color: rgba(39, 174, 96, 0.2);
             padding: 2px 5px;
             border-radius: 3px;
+        }
+
+        /* 11. SPINNER (CARGANDO) - COLOR AMARILLO NEÓN */
+        div[data-testid="stSpinner"] > div {
+            color: #fcd700 !important; /* Amarillo RB */
+            font-family: 'Orbitron', sans-serif !important;
+            font-weight: bold !important;
+            font-size: 1.1rem !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -356,6 +364,7 @@ if pagina == "📊 Telemetría en Vivo":
 
 elif pagina == "🔮 Estrategia & Predicción":
     st.markdown("## 🔮 SIMULACIÓN DE ESTRATEGIA (IA)")
+    # MODO DEMO: DATOS ESTÁTICOS VELOCES
     df_ia = generar_datos_ia_demo_rapido()
     with st.expander("📂 VER HISTORIA DE DATOS (2022-2025)", expanded=False):
         h = df_ia.groupby('Fecha')['Valor'].sum().reset_index()
@@ -364,6 +373,8 @@ elif pagina == "🔮 Estrategia & Predicción":
         
     st.success(f"🏎️ MOTOR GANADOR: **Linear Engine (Speed)**")
     c1,c2=st.columns(2); c1.metric("PRECISIÓN (R²)", "0.94"); c2.metric("ERROR (MAE)", "$12,450")
+    
+    # Proyección
     dias_fut = 30; hoy_val = df_ia['Valor'].iloc[-1]
     fut = [hoy_val * (1 + 0.01 * i) for i in range(dias_fut)]
     
@@ -386,6 +397,6 @@ elif pagina == "🧠 Chat Gari IA":
     st.markdown("## 📻 RADIO CHECK"); p = st.text_input("Consultar Gari IA...")
     if st.button("COPY THAT") and api_key:
         txt, fig, tbl, _ = analizar_gpt(df_raw, p, api_key)
-        if txt: st.info(txt); 
+        if txt: st.info(txt)
         if tbl is not None: st.dataframe(tbl)
         if fig: st.pyplot(fig)
