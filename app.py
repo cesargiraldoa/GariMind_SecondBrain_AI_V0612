@@ -25,7 +25,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🎨 CSS BLINDADO (ESTILO GARI RACING)
+# 🎨 CSS BLINDADO (ESTILO GARI RACING + PODIO + LEADERBOARD)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -58,14 +58,16 @@ st.markdown("""
         }
 
         /* 3. TIPOGRAFÍA */
-        h1, h2, h3, h4 {
+        h1, h2, h3, h4, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
             font-family: 'Orbitron', sans-serif !important;
             color: #ffffff !important;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
-        p, div, span, td {
+        
+        p, div, span, td, li {
             font-family: 'Roboto', sans-serif;
+            color: #e0e0e0;
         }
 
         /* 4. KPI CARDS */
@@ -116,6 +118,88 @@ st.markdown("""
             color: #ffffff !important;
             font-family: 'Orbitron', sans-serif !important;
         }
+        
+        /* 8. PODIO STYLES */
+        .podium-container {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            height: 250px;
+            gap: 10px;
+        }
+        .podium-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            border-radius: 10px 10px 0 0;
+            padding: 10px;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .podium-step:hover {
+            transform: scale(1.05);
+        }
+        .gold {
+            background: linear-gradient(180deg, #FFD700 0%, #B8860B 100%);
+            height: 100%;
+            width: 100%;
+            border: 2px solid #FFD700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+            z-index: 2;
+        }
+        .silver {
+            background: linear-gradient(180deg, #C0C0C0 0%, #A9A9A9 100%);
+            height: 85%;
+            width: 100%;
+            border: 2px solid #C0C0C0;
+            opacity: 0.9;
+        }
+        .bronze {
+            background: linear-gradient(180deg, #CD7F32 0%, #8B4513 100%);
+            height: 70%;
+            width: 100%;
+            border: 2px solid #CD7F32;
+            opacity: 0.9;
+        }
+        .medal { font-size: 3rem; margin-bottom: -5px; }
+        .manager-name { font-size: 1.1rem; font-weight: bold; margin-top: 5px; }
+        .manager-value { font-size: 0.9rem; color: #000; font-weight: bold; background: rgba(255,255,255,0.9); padding: 2px 8px; border-radius: 4px; margin-top: 5px;}
+
+        /* 9. LEADERBOARD (TABLA POSICIONES F1) */
+        .leaderboard-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #151925;
+            padding: 10px 20px;
+            margin-bottom: 5px;
+            border-left: 3px solid #333;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .leaderboard-row:hover {
+            background-color: #1e2433;
+            border-left: 3px solid #cc0000;
+            transform: translateX(5px);
+        }
+        .pos {
+            font-family: 'Orbitron', sans-serif;
+            color: #8fa1b3;
+            width: 40px;
+            font-weight: bold;
+        }
+        .driver {
+            flex-grow: 1;
+            font-weight: bold;
+            color: white;
+        }
+        .time {
+            font-family: 'Orbitron', sans-serif;
+            color: #fcd700;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -132,7 +216,6 @@ if 'authenticated' not in st.session_state:
 
 def check_password():
     def login_form():
-        # Sidebar simplificado para Login
         with st.sidebar:
             st.markdown("### 🔒 SECURITY CHECK")
             st.info("Biometrics required")
@@ -259,20 +342,13 @@ def generar_reporte_pmv_whatsapp(df):
         return f"https://wa.me/?text={urllib.parse.quote(msg)}"
     except: return "https://wa.me/"
 
-# --- CARGA DATOS (TURBO) ---
+# --- CARGA DATOS (VERSIÓN SEGURA: SELECT *) ---
 @st.cache_data(ttl=3600, show_spinner="🔌 Conectando Neuronas (SQL)...")
 def cargar_datos_integrados():
     df_final = pd.DataFrame()
     try:
         conn = st.connection("sql", type="sql")
-        
-        # 1. OPTIMIZACIÓN: Intenta traer solo columnas clave
-        try:
-            df = conn.query("SELECT Fecha, Sucursal, Valor FROM stg.Ingresos_Detallados", ttl=3600)
-        except:
-            # Fallback
-            df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=3600)
-            
+        df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=3600)
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         df['Año'] = df['Fecha'].dt.year
@@ -282,14 +358,12 @@ def cargar_datos_integrados():
         df['Dia'] = df['DiaNum'].map(dias_es)
         df['Tx'] = 1 
         
-        # Zonas Incrustadas
         datos_zonas = {'CLINICAS': ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'PASEO VILLA DEL RIO', 'CENTRO MAYOR', 'MULTIPLAZA', 'SALITRE', 'UNICENTRO', 'ITAGUI', 'LA PLAYA', 'POBLADO', 'CALI CIUDAD JARDIN', 'CALLE 80', 'GRAN ESTACION', 'CEDRITOS', 'PORTAL 80', 'CENTRO', 'VILLAVICENCIO', 'KENNEDY', 'ROMA', 'VILLAS', 'ALAMOS', 'CALI AV 6TA', 'MALL PLAZA BOGOTA', 'CALI CALIMA', 'PLAZA DE LAS AMERICAS', 'SUBA PLAZA IMPERIAL', 'MALL PLAZA BARRANQUILLA', 'LA FLORESTA', 'PALMIRA', 'RESTREPO', 'MALL PLAZA CALI'], 'ZONA': ['ZONA 4', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 5', 'ZONA 3', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 4', 'ZONA 4', 'ZONA 2', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 1'], 'CIUDAD': ['BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'MEDELLÍN', 'MEDELLÍN', 'MEDELLÍN', 'CALI', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'VILLAVICENCIO', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'BOGOTÁ', 'CALI', 'BOGOTÁ', 'CALI', 'BOGOTÁ', 'BOGOTÁ', 'BARRANQUILLA', 'MEDELLÍN', 'CALI', 'BOGOTÁ', 'CALI'], 'RED': ['PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'PROPIA', 'FRANQUICIA', 'FRANQUICIA', 'FRANQUICIA', 'PROPIA']}
         df_z = pd.DataFrame(datos_zonas)
         df['Sucursal_Upper'] = df['Sucursal'].str.upper().str.strip()
         df_z['CLINICAS'] = df_z['CLINICAS'].str.upper().str.strip()
         df_f = df.merge(df_z, left_on='Sucursal_Upper', right_on='CLINICAS', how='left')
         
-        # Relleno masivo
         vals = {'ZONA':'Sin Zona', 'CIUDAD':'Otras', 'RED':'No Def'}
         df_f.fillna(value=vals, inplace=True)
         return df_f
@@ -330,7 +404,7 @@ with st.sidebar:
         </a>
         """, unsafe_allow_html=True)
         
-    pagina = st.radio("MENÚ PRINCIPAL", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🗺️ Mapa Geográfico", "🧠 Chat Gari IA"])
+    pagina = st.radio("MENÚ PRINCIPAL", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🧠 Chat Gari IA"])
     
     if "OPENAI_API_KEY" in st.secrets: api_key = st.secrets["OPENAI_API_KEY"]
     else: api_key = st.text_input("🔑 API KEY:", type="password")
@@ -339,6 +413,42 @@ with st.sidebar:
 if pagina == "📊 Telemetría en Vivo":
     st.markdown("## 🏁 TELEMETRÍA DE COMANDO")
     if not df_raw.empty:
+        # --- PODIO DE CAMPEONES ---
+        st.markdown("### 🏆 PODIO DE GERENTES ZONALES")
+        anio_actual = df_raw['Año'].max()
+        df_act = df_raw[df_raw['Año'] == anio_actual]
+        
+        # Calcular Ranking Completo
+        df_ranking = df_act.groupby('ZONA')['Valor'].sum().reset_index().sort_values('Valor', ascending=False)
+        
+        # TOP 3 (PODIO)
+        if len(df_ranking) >= 3:
+            top1 = df_ranking.iloc[0]
+            top2 = df_ranking.iloc[1]
+            top3 = df_ranking.iloc[2]
+            
+            c_slv, c_gld, c_brz = st.columns([1, 1, 1])
+            with c_slv: st.markdown(f"""<div class="podium-step silver"><div class="medal">🥈</div><div class="manager-name">{top2['ZONA']}</div><div class="manager-value">${top2['Valor']/1e6:,.0f}M</div></div><div style="height: 20px;"></div>""", unsafe_allow_html=True)
+            with c_gld: st.markdown(f"""<div class="podium-step gold"><div class="medal">🥇</div><div class="manager-name">{top1['ZONA']}</div><div class="manager-value">${top1['Valor']/1e6:,.0f}M</div></div>""", unsafe_allow_html=True)
+            with c_brz: st.markdown(f"""<div class="podium-step bronze"><div class="medal">🥉</div><div class="manager-name">{top3['ZONA']}</div><div class="manager-value">${top3['Valor']/1e6:,.0f}M</div></div><div style="height: 40px;"></div>""", unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # --- RESTO DE LA PARRILLA (POSICIONES 4+) ---
+        if len(df_ranking) > 3:
+            with st.expander("🏁 CLASIFICACIÓN GENERAL (RESTO DE LA PARRILLA)", expanded=False):
+                resto = df_ranking.iloc[3:]
+                for i, row in resto.iterrows():
+                    pos = i + 1
+                    st.markdown(f"""
+                    <div class="leaderboard-row">
+                        <div class="pos">P{pos}</div>
+                        <div class="driver">{row['ZONA']}</div>
+                        <div class="time">${row['Valor']:,.0f}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            st.markdown("---")
+
         with st.expander("🛠️ CONFIGURACIÓN DE FILTROS", expanded=True):
             c1,c2,c3 = st.columns(3)
             sel_zona = c1.multiselect("SECTOR", sorted(df_raw['ZONA'].astype(str).unique()))
@@ -355,17 +465,16 @@ if pagina == "📊 Telemetría en Vivo":
         with c2: metric = st.radio("VISUALIZAR:", ["Ventas ($)", "Transacciones (#)"], horizontal=True)
         col_kpi = 'Valor' if metric == "Ventas ($)" else 'Tx'
         
-        anio = df_v['Año'].max()
-        df_act = df_v[df_v['Año'] == anio]
-        df_ant = df_v[(df_v['Año'] == anio-1) & (df_v['Fecha'] <= df_act['Fecha'].max().replace(year=anio-1))]
+        df_act_filt = df_v[df_v['Año'] == anio_actual]
+        df_ant = df_v[(df_v['Año'] == anio_actual-1) & (df_v['Fecha'] <= df_act_filt['Fecha'].max().replace(year=anio_actual-1))]
         
-        v_a, v_b = df_act['Valor'].sum(), df_ant['Valor'].sum()
+        v_a, v_b = df_act_filt['Valor'].sum(), df_ant['Valor'].sum()
         d_v = ((v_a - v_b)/v_b)*100 if v_b > 0 else 0
         
         k1,k2,k3 = st.columns(3)
-        k1.metric(f"VENTAS {anio}", f"${v_a:,.0f}", f"{d_v:+.1f}%")
-        k2.metric("TRANSACCIONES", f"{len(df_act):,}")
-        k3.metric("ÚLTIMA ACTUALIZACIÓN", df_act['Fecha'].max().strftime('%d/%m/%Y'))
+        k1.metric(f"VENTAS {anio_actual}", f"${v_a:,.0f}", f"{d_v:+.1f}%")
+        k2.metric("TRANSACCIONES", f"{len(df_act_filt):,}")
+        k3.metric("ÚLTIMA ACTUALIZACIÓN", df_act_filt['Fecha'].max().strftime('%d/%m/%Y'))
         
         st.markdown("#### ⏱️ HISTÓRICO DE TEMPORADAS")
         df_y = df_v.groupby('Año').agg(Ventas=('Valor','sum'), Tx=('Tx','sum')).sort_index(ascending=False)
@@ -374,19 +483,19 @@ if pagina == "📊 Telemetría en Vivo":
         
         st.markdown("---")
         if not sel_zona or len(sel_zona)>1:
-            st.pyplot(graficar_barras_pro(df_act.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False), 'ZONA', col_kpi, 'Ranking Sectores'))
+            st.pyplot(graficar_barras_pro(df_act_filt.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False), 'ZONA', col_kpi, 'Ranking Sectores'))
         
         c1,c2 = st.columns(2)
         with c1:
-            df_m = df_act.groupby('MesNum').agg({col_kpi:'sum'}).reset_index(); df_m['Mes'] = df_m['MesNum'].map(meses_es)
+            df_m = df_act_filt.groupby('MesNum').agg({col_kpi:'sum'}).reset_index(); df_m['Mes'] = df_m['MesNum'].map(meses_es)
             st.pyplot(graficar_barras_pro(df_m, 'Mes', col_kpi, 'Ritmo Mensual'))
         with c2:
-            df_d = df_act.groupby(['DiaNum','Dia']).agg({col_kpi:'sum'}).reset_index().sort_values('DiaNum')
+            df_d = df_act_filt.groupby(['DiaNum','Dia']).agg({col_kpi:'sum'}).reset_index().sort_values('DiaNum')
             st.pyplot(graficar_barras_pro(df_d, 'Dia', col_kpi, 'Trazado Semanal', '#2c3e50'))
             
         st.markdown("### 🏥 3. TELEMETRÍA DETALLADA")
-        for s in sorted(df_act['Sucursal'].unique()):
-            d_s = df_act[df_act['Sucursal']==s]
+        for s in sorted(df_act_filt['Sucursal'].unique()):
+            d_s = df_act_filt[df_act_filt['Sucursal']==s]
             with st.expander(f"📍 {s}", expanded=False):
                 c1,c2 = st.columns(2)
                 with c1: st.pyplot(graficar_barras_pro(d_s.groupby('MesNum').agg({col_kpi:'sum'}).reset_index().assign(Mes=lambda x:x['MesNum'].map(meses_es)), 'Mes', col_kpi, 'Mensual'))
@@ -435,9 +544,6 @@ elif pagina == "🔮 Estrategia & Predicción":
             diff = final - meta
             if diff >= 0: st.success(f"✅ ESTRATEGIA GANADORA: +${diff:,.0f}")
             else: st.error(f"⚠️ GAP: -${abs(diff):,.0f}")
-
-elif pagina == "🗺️ Mapa Geográfico":
-    st.markdown("## 🗺️ LOCALIZACIÓN DEL CIRCUITO"); st.map(pd.DataFrame({'lat': [4.6097], 'lon': [-74.0817]}))
 
 elif pagina == "🧠 Chat Gari IA":
     st.markdown("## 📻 RADIO CHECK"); p = st.text_input("Consultar Gari IA...")
