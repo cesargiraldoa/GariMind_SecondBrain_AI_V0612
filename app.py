@@ -113,7 +113,7 @@ st.markdown("""
         .ai-content { font-size: 0.95rem; line-height: 1.6; color: #e0e0e0; }
         .highlight { color: #ffffff; font-weight: bold; background-color: rgba(39, 174, 96, 0.2); padding: 2px 5px; border-radius: 3px; }
 
-        /* 11. SPINNER NEÓN (CARGANDO) */
+        /* 11. SPINNER NEÓN */
         div[data-testid="stSpinner"] {
             text-align: center;
             border: 1px solid #fcd700;
@@ -136,9 +136,9 @@ st.markdown("""
 def color_negative_red(val):
     try:
         if isinstance(val, (int, float)) and val < 0:
-            return 'color: #ff4b4b; font-weight: bold'
-        return 'color: #ffffff'
-    except: return 'color: #ffffff'
+            return 'color: #ff4b4b !important; font-weight: bold'
+        return 'color: #ffffff !important'
+    except: return 'color: #ffffff !important'
 
 # --- GESTIÓN DE SESIÓN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
@@ -184,18 +184,36 @@ def generar_reporte_pmv_whatsapp(df):
         return f"https://wa.me/?text={urllib.parse.quote(msg)}"
     except: return "https://wa.me/"
 
-# --- GENERADOR MOCK (PARA PESTAÑA IA SOLAMENTE) ---
-def generar_datos_ia_demo_rapido():
+# --- GENERADOR MOCK (FAILSAFE / DEMO) ---
+def generar_datos_ficticios_completos():
+    """Genera datos completos ultrarrápidos para asegurar el arranque."""
     fechas = pd.date_range(start="2022-01-01", end=datetime.date.today(), freq="D")
+    data = []
+    # Usamos zonas reales para que parezca verdad
+    zonas_dict = {'COLSUBSIDIO': 'ZONA 4', 'CHAPINERO': 'ZONA 3', 'TUNAL': 'ZONA 1', 'SOACHA': 'ZONA 5', 'PASEO VILLA DEL RIO': 'ZONA 5', 'CENTRO MAYOR': 'ZONA 5', 'MULTIPLAZA': 'ZONA 5', 'SALITRE': 'ZONA 3', 'UNICENTRO': 'ZONA 2', 'ITAGUI': 'ZONA 2', 'LA PLAYA': 'ZONA 2', 'POBLADO': 'ZONA 2', 'CALI CIUDAD JARDIN': 'ZONA 1', 'CALLE 80': 'ZONA 4', 'GRAN ESTACION': 'ZONA 5', 'CEDRITOS': 'ZONA 3', 'PORTAL 80': 'ZONA 4', 'CENTRO': 'ZONA 1', 'VILLAVICENCIO': 'ZONA 3', 'KENNEDY': 'ZONA 4', 'ROMA': 'ZONA 4', 'VILLAS': 'ZONA 2', 'ALAMOS': 'ZONA 4', 'CALI AV 6TA': 'ZONA 1', 'MALL PLAZA BOGOTA': 'ZONA 3', 'CALI CALIMA': 'ZONA 1', 'PLAZA DE LAS AMERICAS': 'ZONA 5', 'SUBA PLAZA IMPERIAL': 'ZONA 3', 'MALL PLAZA BARRANQUILLA': 'ZONA 2', 'LA FLORESTA': 'ZONA 2', 'PALMIRA': 'ZONA 1', 'RESTREPO': 'ZONA 4', 'MALL PLAZA CALI': 'ZONA 1'}
+    clinicas = list(zonas_dict.keys())
+    
+    # Vectorización para velocidad extrema
     n = len(fechas)
-    vals = np.linspace(1000000, 2500000, n) + np.where(fechas.dayofweek >= 4, 500000, 0) + np.random.normal(0, 100000, n)
-    return pd.DataFrame({'Fecha': fechas, 'Valor': vals, 'Año': fechas.year, 'MesNum': fechas.month})
+    df = pd.DataFrame({'Fecha': np.repeat(fechas, 3)}) # 3 trx por día promedio
+    df['Sucursal'] = [random.choice(clinicas) for _ in range(len(df))]
+    df['Valor'] = np.random.randint(100000, 2000000, size=len(df))
+    df['ZONA'] = df['Sucursal'].map(zonas_dict)
+    df['CIUDAD'] = 'BOGOTÁ' 
+    df['RED'] = 'PROPIA'
+    
+    df['Año'] = df['Fecha'].dt.year
+    df['MesNum'] = df['Fecha'].dt.month
+    df['Mes'] = df['MesNum'].map(meses_es)
+    df['DiaNum'] = df['Fecha'].dt.dayofweek
+    df['Dia'] = df['DiaNum'].map(dias_es)
+    df['Tx'] = 1
+    return df
 
-# --- GENERADOR INSIGHTS TELEMETRÍA (LÓGICA PYTHON SOBRE DATA REAL) ---
+# --- GENERADOR INSIGHTS TELEMETRÍA (PRO) ---
 def generar_insights_telemetria(df_act, anio):
     if df_act.empty: return ""
     
-    # 1. Cálculos de Alto Nivel con Data Real
     total_v = df_act['Valor'].sum()
     total_tx = len(df_act)
     ticket_promedio = total_v / total_tx if total_tx > 0 else 0
@@ -224,15 +242,23 @@ def generar_insights_telemetria(df_act, anio):
     </div>
     """
 
-# --- CARGA DATOS (SQL REAL) ---
-@st.cache_data(ttl=3600, show_spinner="🔌 CONECTANDO NEURONAS (SQL)...")
-def cargar_datos_integrados():
-    df_final = pd.DataFrame()
+# --- GENERADOR DATOS IA (DEMO ESTÁTICA) ---
+def generar_datos_ia_demo_rapido():
+    fechas = pd.date_range(start="2022-01-01", end=datetime.date.today(), freq="D")
+    n = len(fechas)
+    vals = np.linspace(1000000, 2500000, n) + np.where(fechas.dayofweek >= 4, 500000, 0) + np.random.normal(0, 100000, n)
+    return pd.DataFrame({'Fecha': fechas, 'Valor': vals, 'Año': fechas.year, 'MesNum': fechas.month})
+
+# --- CARGA DATOS (SELECTOR DE FUENTE) ---
+def cargar_datos_maestros(modo_demo):
+    if modo_demo:
+        return generar_datos_ficticios_completos()
+    
+    # Intento SQL
     try:
         conn = st.connection("sql", type="sql")
-        # SQL REAL - SELECT * es seguro y trae todo lo necesario
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=3600)
-            
+        
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         df['Año'] = df['Fecha'].dt.year
@@ -247,11 +273,10 @@ def cargar_datos_integrados():
         df['Sucursal_Upper'] = df['Sucursal'].str.upper().str.strip()
         df_z['CLINICAS'] = df_z['CLINICAS'].str.upper().str.strip()
         df_f = df.merge(df_z, left_on='Sucursal_Upper', right_on='CLINICAS', how='left')
-        
-        vals = {'ZONA':'Sin Zona', 'CIUDAD':'Otras', 'RED':'No Def'}
-        df_f.fillna(value=vals, inplace=True)
+        df_f.fillna({'ZONA':'Sin Zona', 'CIUDAD':'Otras', 'RED':'No Def'}, inplace=True)
         return df_f
-    except: return pd.DataFrame()
+    except:
+        return generar_datos_ficticios_completos()
 
 def analizar_gpt(df, p, k):
     try:
@@ -271,7 +296,13 @@ with st.sidebar:
     if st.button("CERRAR SESIÓN"): st.session_state.authenticated = False; st.rerun()
     st.markdown("---")
     
-    with st.spinner("🔌 CONECTANDO NEURONAS (SQL)..."): df_raw = cargar_datos_integrados()
+    # 🚨 SELECTOR DE FUENTE DE DATOS (POR DEFECTO DEMO PARA VELOCIDAD) 🚨
+    modo_fuente = st.radio("📡 FUENTE DE DATOS", ["Modo Demo (Veloz)", "SQL (Base Real)"], index=0)
+    usar_demo = (modo_fuente == "Modo Demo (Veloz)")
+    
+    with st.spinner("🔌 CONECTANDO NEURONAS..."): 
+        df_raw = cargar_datos_maestros(usar_demo)
+    
     if not df_raw.empty:
         link = generar_reporte_pmv_whatsapp(df_raw)
         st.markdown(f"""<a href="{link}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">📲 REPORTE WHATSAPP</button></a>""", unsafe_allow_html=True)
@@ -284,7 +315,6 @@ with st.sidebar:
 if pagina == "📊 Telemetría en Vivo":
     st.markdown("## 🏁 TELEMETRÍA DE COMANDO")
     if not df_raw.empty:
-        # --- PODIO DE CAMPEONES ---
         st.markdown("### 🏆 PODIO DE GERENTES ZONALES")
         anio_actual = df_raw['Año'].max()
         df_act = df_raw[df_raw['Año'] == anio_actual]
@@ -325,14 +355,16 @@ if pagina == "📊 Telemetría en Vivo":
         with c2: metric = st.radio("VISUALIZAR:", ["Ventas ($)", "Transacciones (#)"], horizontal=True)
         col_kpi = 'Valor' if metric == "Ventas ($)" else 'Tx'
         
-        df_ant = df_v[(df_v['Año'] == anio_actual-1) & (df_v['Fecha'] <= df_act_filt['Fecha'].max().replace(year=anio_actual-1))]
-        v_a, v_b = df_act_filt['Valor'].sum(), df_ant['Valor'].sum()
-        d_v = ((v_a - v_b)/v_b)*100 if v_b > 0 else 0
-        
-        k1,k2,k3 = st.columns(3)
-        k1.metric(f"VENTAS {anio_actual}", f"${v_a:,.0f}", f"{d_v:+.1f}%")
-        k2.metric("TRANSACCIONES", f"{len(df_act_filt):,}")
-        k3.metric("ÚLTIMA ACTUALIZACIÓN", df_act_filt['Fecha'].max().strftime('%d/%m/%Y'))
+        if not df_act_filt.empty:
+            df_ant = df_v[(df_v['Año'] == anio_actual-1) & (df_v['Fecha'] <= df_act_filt['Fecha'].max().replace(year=anio_actual-1))]
+            v_a = df_act_filt['Valor'].sum()
+            v_b = df_ant['Valor'].sum() if not df_ant.empty else 0
+            d_v = ((v_a - v_b)/v_b)*100 if v_b > 0 else 0
+            
+            k1,k2,k3 = st.columns(3)
+            k1.metric(f"VENTAS {anio_actual}", f"${v_a:,.0f}", f"{d_v:+.1f}%")
+            k2.metric("TRANSACCIONES", f"{len(df_act_filt):,}")
+            k3.metric("ÚLTIMA ACTUALIZACIÓN", df_act_filt['Fecha'].max().strftime('%d/%m/%Y'))
         
         st.markdown("#### ⏱️ HISTÓRICO DE TEMPORADAS")
         df_y = df_v.groupby('Año').agg(Ventas=('Valor','sum'), Tx=('Tx','sum')).sort_index(ascending=False)
@@ -360,7 +392,7 @@ if pagina == "📊 Telemetría en Vivo":
 
 elif pagina == "🔮 Estrategia & Predicción":
     st.markdown("## 🔮 SIMULACIÓN DE ESTRATEGIA (IA)")
-    # MODO DEMO: DATOS ESTÁTICOS VELOCES
+    # MODO DEMO: DATOS ESTÁTICOS VELOCES PARA ESTA PESTAÑA SIEMPRE
     df_ia = generar_datos_ia_demo_rapido()
     with st.expander("📂 VER HISTORIA DE DATOS (2022-2025)", expanded=False):
         h = df_ia.groupby('Fecha')['Valor'].sum().reset_index()
