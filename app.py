@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -10,6 +9,8 @@ import datetime
 import calendar
 import numpy as np
 import random
+
+# Nota: OpenAI se importa solo cuando se necesita en la pestaña de Chat para no ralentizar el inicio.
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -116,8 +117,9 @@ st.markdown("""
         div[data-testid="stSpinner"] > div {
             color: #fcd700 !important;
             font-family: 'Orbitron', sans-serif !important;
-            font-weight: bold !important;
-            font-size: 1.1rem !important;
+            font-weight: 900 !important;
+            font-size: 1.2rem !important;
+            text-shadow: 0 0 10px #cc0000;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -125,7 +127,8 @@ st.markdown("""
 # --- FUNCIÓN COLOR TABLAS ---
 def color_negative_red(val):
     try:
-        if val < 0: return 'color: #ff4b4b !important; font-weight: bold'
+        if isinstance(val, (int, float)) and val < 0:
+            return 'color: #ff4b4b !important; font-weight: bold'
         return 'color: #ffffff !important'
     except: return 'color: #ffffff !important'
 
@@ -180,14 +183,17 @@ def generar_datos_ia_demo_rapido():
     vals = np.linspace(1000000, 2500000, n) + np.where(fechas.dayofweek >= 4, 500000, 0) + np.random.normal(0, 100000, n)
     return pd.DataFrame({'Fecha': fechas, 'Valor': vals, 'Año': fechas.year, 'MesNum': fechas.month})
 
-# --- GENERADOR INSIGHTS TELEMETRÍA (PRO) ---
+# --- GENERADOR INSIGHTS TELEMETRÍA (LÓGICA PYTHON - CERO OPENAI) ---
 def generar_insights_telemetria(df_act, anio):
+    """Genera insights usando lógica Python para máxima velocidad."""
     if df_act.empty: return ""
+    
     total_v = df_act['Valor'].sum()
     total_tx = len(df_act)
     ticket_promedio = total_v / total_tx if total_tx > 0 else 0
     
     zona_stats = df_act.groupby('ZONA')['Valor'].sum()
+    if zona_stats.empty: return ""
     top_zona = zona_stats.idxmax()
     share_zona = (zona_stats.max() / total_v) * 100
     low_zona = zona_stats.idxmin()
@@ -200,7 +206,7 @@ def generar_insights_telemetria(df_act, anio):
     
     return f"""
     <div class="ai-box">
-        <div class="ai-title">🧠 ANÁLISIS ESTRATÉGICO (GARI ENGINE V2.0)</div>
+        <div class="ai-title">🧠 ANÁLISIS ESTRATÉGICO (GARI ENGINE)</div>
         <div class="ai-content">
             <p>🏁 <b>DIAGNÓSTICO:</b> La operación acumula una tracción de <span class="highlight">${total_v:,.0f}</span> con un Ticket Promedio de <span class="highlight">${ticket_promedio:,.0f}</span>.</p>
             <p>🏆 <b>DOMINIO TÁCTICO:</b> La <span class="highlight">{top_zona}</span> lidera concentrando el <b>{share_zona:.1f}%</b> de la facturación. Sede MVP: <span class="highlight">{top_cli}</span>.</p>
@@ -241,9 +247,11 @@ def cargar_datos_integrados():
 
 def analizar_gpt(df, p, k):
     try:
-        c = openai.OpenAI(api_key=k)
+        # Importación tardía para no afectar carga inicial
+        import openai
+        client = openai.OpenAI(api_key=k)
         b = io.StringIO(); df.head().to_csv(b, index=False)
-        r = c.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":"Python code only. Output: resultado, fig, tabla_resultados."},{"role":"user","content":f"Data:{b.getvalue()} Q:{p}"}], temperature=0)
+        r = client.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":"Python code only. Output: resultado, fig, tabla_resultados."},{"role":"user","content":f"Data:{b.getvalue()} Q:{p}"}], temperature=0)
         code = r.choices[0].message.content.replace("```python","").replace("```","").strip()
         loc = {'df':df,'pd':pd,'plt':plt}; exec(code, globals(), loc)
         return loc.get('resultado'), loc.get('fig'), loc.get('tabla_resultados'), code
@@ -269,6 +277,7 @@ with st.sidebar:
 if pagina == "📊 Telemetría en Vivo":
     st.markdown("## 🏁 TELEMETRÍA DE COMANDO")
     if not df_raw.empty:
+        # --- PODIO DE CAMPEONES ---
         st.markdown("### 🏆 PODIO DE GERENTES ZONALES")
         anio_actual = df_raw['Año'].max()
         df_act = df_raw[df_raw['Año'] == anio_actual]
@@ -301,7 +310,7 @@ if pagina == "📊 Telemetría en Vivo":
         
         st.markdown("---")
         
-        # --- INSIGHTS GARI IA ---
+        # --- INSIGHTS GARI IA (PYTHON PURO) ---
         df_act_filt = df_v[df_v['Año'] == anio_actual]
         st.markdown(generar_insights_telemetria(df_act_filt, anio_actual), unsafe_allow_html=True)
         
@@ -344,7 +353,7 @@ if pagina == "📊 Telemetría en Vivo":
 
 elif pagina == "🔮 Estrategia & Predicción":
     st.markdown("## 🔮 SIMULACIÓN DE ESTRATEGIA (IA)")
-    # MODO DEMO: DATOS ESTÁTICOS VELOCES
+    # DATOS ESTÁTICOS PARA DEMO
     df_ia = generar_datos_ia_demo_rapido()
     with st.expander("📂 VER HISTORIA DE DATOS (2022-2025)", expanded=False):
         h = df_ia.groupby('Fecha')['Valor'].sum().reset_index()
