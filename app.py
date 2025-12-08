@@ -10,7 +10,7 @@ import calendar
 import numpy as np
 import random
 
-# Nota: OpenAI se importa solo cuando se necesita en la pestaña de Chat para no ralentizar el inicio.
+# Nota: OpenAI se importa solo bajo demanda (Pestaña 3) para no frenar el arranque.
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🎨 CSS BLINDADO (ESTILO GARI RACING + PODIO)
+# 🎨 CSS BLINDADO (ESTILO GARI RACING + PODIO + SPINNER NEÓN)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -113,7 +113,15 @@ st.markdown("""
         .ai-content { font-size: 0.95rem; line-height: 1.6; color: #e0e0e0; }
         .highlight { color: #ffffff; font-weight: bold; background-color: rgba(39, 174, 96, 0.2); padding: 2px 5px; border-radius: 3px; }
 
-        /* 11. SPINNER NEÓN */
+        /* 11. SPINNER NEÓN (CARGANDO) */
+        div[data-testid="stSpinner"] {
+            text-align: center;
+            border: 1px solid #fcd700;
+            background: #000000;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
         div[data-testid="stSpinner"] > div {
             color: #fcd700 !important;
             font-family: 'Orbitron', sans-serif !important;
@@ -128,9 +136,9 @@ st.markdown("""
 def color_negative_red(val):
     try:
         if isinstance(val, (int, float)) and val < 0:
-            return 'color: #ff4b4b !important; font-weight: bold'
-        return 'color: #ffffff !important'
-    except: return 'color: #ffffff !important'
+            return 'color: #ff4b4b; font-weight: bold'
+        return 'color: #ffffff'
+    except: return 'color: #ffffff'
 
 # --- GESTIÓN DE SESIÓN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
@@ -176,18 +184,18 @@ def generar_reporte_pmv_whatsapp(df):
         return f"https://wa.me/?text={urllib.parse.quote(msg)}"
     except: return "https://wa.me/"
 
-# --- GENERADOR MOCK (DEMO IA) ---
+# --- GENERADOR MOCK (PARA PESTAÑA IA SOLAMENTE) ---
 def generar_datos_ia_demo_rapido():
     fechas = pd.date_range(start="2022-01-01", end=datetime.date.today(), freq="D")
     n = len(fechas)
     vals = np.linspace(1000000, 2500000, n) + np.where(fechas.dayofweek >= 4, 500000, 0) + np.random.normal(0, 100000, n)
     return pd.DataFrame({'Fecha': fechas, 'Valor': vals, 'Año': fechas.year, 'MesNum': fechas.month})
 
-# --- GENERADOR INSIGHTS TELEMETRÍA (LÓGICA PYTHON - CERO OPENAI) ---
+# --- GENERADOR INSIGHTS TELEMETRÍA (LÓGICA PYTHON SOBRE DATA REAL) ---
 def generar_insights_telemetria(df_act, anio):
-    """Genera insights usando lógica Python para máxima velocidad."""
     if df_act.empty: return ""
     
+    # 1. Cálculos de Alto Nivel con Data Real
     total_v = df_act['Valor'].sum()
     total_tx = len(df_act)
     ticket_promedio = total_v / total_tx if total_tx > 0 else 0
@@ -206,7 +214,7 @@ def generar_insights_telemetria(df_act, anio):
     
     return f"""
     <div class="ai-box">
-        <div class="ai-title">🧠 ANÁLISIS ESTRATÉGICO (GARI ENGINE)</div>
+        <div class="ai-title">🧠 ANÁLISIS ESTRATÉGICO (GARI ENGINE V2.0)</div>
         <div class="ai-content">
             <p>🏁 <b>DIAGNÓSTICO:</b> La operación acumula una tracción de <span class="highlight">${total_v:,.0f}</span> con un Ticket Promedio de <span class="highlight">${ticket_promedio:,.0f}</span>.</p>
             <p>🏆 <b>DOMINIO TÁCTICO:</b> La <span class="highlight">{top_zona}</span> lidera concentrando el <b>{share_zona:.1f}%</b> de la facturación. Sede MVP: <span class="highlight">{top_cli}</span>.</p>
@@ -216,13 +224,13 @@ def generar_insights_telemetria(df_act, anio):
     </div>
     """
 
-# --- CARGA DATOS (MODO SEGURO SQL) ---
+# --- CARGA DATOS (SQL REAL) ---
 @st.cache_data(ttl=3600, show_spinner="🔌 CONECTANDO NEURONAS (SQL)...")
 def cargar_datos_integrados():
     df_final = pd.DataFrame()
     try:
         conn = st.connection("sql", type="sql")
-        # MODO SEGURO: SELECT *
+        # SQL REAL - SELECT * es seguro y trae todo lo necesario
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=3600)
             
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
@@ -247,11 +255,10 @@ def cargar_datos_integrados():
 
 def analizar_gpt(df, p, k):
     try:
-        # Importación tardía para no afectar carga inicial
         import openai
-        client = openai.OpenAI(api_key=k)
+        c = openai.OpenAI(api_key=k)
         b = io.StringIO(); df.head().to_csv(b, index=False)
-        r = client.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":"Python code only. Output: resultado, fig, tabla_resultados."},{"role":"user","content":f"Data:{b.getvalue()} Q:{p}"}], temperature=0)
+        r = c.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":"Python code only. Output: resultado, fig, tabla_resultados."},{"role":"user","content":f"Data:{b.getvalue()} Q:{p}"}], temperature=0)
         code = r.choices[0].message.content.replace("```python","").replace("```","").strip()
         loc = {'df':df,'pd':pd,'plt':plt}; exec(code, globals(), loc)
         return loc.get('resultado'), loc.get('fig'), loc.get('tabla_resultados'), code
@@ -310,7 +317,7 @@ if pagina == "📊 Telemetría en Vivo":
         
         st.markdown("---")
         
-        # --- INSIGHTS GARI IA (PYTHON PURO) ---
+        # --- INSIGHTS GARI IA ---
         df_act_filt = df_v[df_v['Año'] == anio_actual]
         st.markdown(generar_insights_telemetria(df_act_filt, anio_actual), unsafe_allow_html=True)
         
@@ -353,7 +360,7 @@ if pagina == "📊 Telemetría en Vivo":
 
 elif pagina == "🔮 Estrategia & Predicción":
     st.markdown("## 🔮 SIMULACIÓN DE ESTRATEGIA (IA)")
-    # DATOS ESTÁTICOS PARA DEMO
+    # MODO DEMO: DATOS ESTÁTICOS VELOCES
     df_ia = generar_datos_ia_demo_rapido()
     with st.expander("📂 VER HISTORIA DE DATOS (2022-2025)", expanded=False):
         h = df_ia.groupby('Fecha')['Valor'].sum().reset_index()
