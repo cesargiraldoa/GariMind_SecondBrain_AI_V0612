@@ -4,6 +4,7 @@ import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import urllib.parse  # <--- NUEVA LIBRERÍA PARA WHATSAPP
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
@@ -50,6 +51,45 @@ def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db', form
     plt.xticks(rotation=0, fontsize=10)
     plt.tight_layout()
     return fig
+
+# --- NUEVO: FUNCIÓN GENERAR LINK WHATSAPP ---
+def generar_link_whatsapp(df):
+    try:
+        # Calcular KPIs del Año Actual (o lo que esté filtrado)
+        anio_actual = df['Año'].max()
+        df_actual = df[df['Año'] == anio_actual]
+        
+        if df_actual.empty:
+            return "https://wa.me/"
+
+        venta_tot = df_actual['Valor'].sum()
+        tx_tot = len(df_actual)
+        ticket = venta_tot / tx_tot if tx_tot > 0 else 0
+        
+        # Top Zona
+        if 'ZONA' in df_actual.columns:
+            top_zona = df_actual.groupby('ZONA')['Valor'].sum().idxmax()
+            venta_zona = df_actual.groupby('ZONA')['Valor'].sum().max()
+        else:
+            top_zona = "General"
+            venta_zona = 0
+
+        # Construir Mensaje
+        mensaje = f"""*🐹 REPORTE GARI - DENTISALUD*
+📅 *Corte:* {anio_actual}
+
+💰 *Venta (YTD):* ${venta_tot:,.0f}
+🧾 *Tx:* {tx_tot:,.0f}
+💳 *Ticket Prom:* ${ticket:,.0f}
+
+🏆 *Zona Líder:* {top_zona} (${venta_zona:,.0f})
+
+_Reporte generado automáticamente_ 🚀"""
+
+        mensaje_codificado = urllib.parse.quote(mensaje)
+        return f"https://wa.me/?text={mensaje_codificado}"
+    except:
+        return "https://wa.me/"
 
 # --- CARGA DE DATOS (SQL + ZONAS INCRUSTADAS) ---
 @st.cache_data(ttl=600)
@@ -147,6 +187,49 @@ else:
 with st.spinner("Cargando cerebro de Gari..."):
     df_raw = cargar_datos_integrados()
 
+# --- FILTROS GLOBALES (Se definen aquí para usar en WhatsApp y en Reportes) ---
+# Creamos una copia filtrada que servirá tanto para la pestaña de Reportes como para el Botón de WhatsApp
+df_view = pd.DataFrame()
+if not df_raw.empty:
+    df_view = df_raw.copy()
+    
+    # Solo mostramos filtros si NO estamos en el Chat (para dejar limpio el chat) o si prefieres tenerlos siempre
+    # En este caso, los procesamos internamente para el botón de WhatsApp
+    if pagina == "📊 Reportes Ejecutivos BI":
+         with st.sidebar.expander("🔍 Filtros Activos", expanded=False): # Mover a expander en sidebar para ahorrar espacio
+            pass # Los filtros se renderizan en la página principal para mayor control, o aquí. 
+                 # MANTENEMOS TU DISEÑO ORIGINAL: Filtros en la página principal.
+                 # El botón de WhatsApp usará los datos globales raw por defecto, 
+                 # Ojo: Para que el botón de WhatsApp respete los filtros de la página 2, 
+                 # los filtros deberían estar en el Sidebar.
+                 # Como están en el cuerpo de la página 2, el botón de WhatsApp en sidebar usará datos globales.
+                 
+    # --- BOTÓN WHATSAPP EN SIDEBAR ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("📲 Reporte Rápido")
+    # Nota: Aquí usamos df_raw (Global) porque los filtros están dentro de la página "Reportes".
+    # Si quisieras que el botón respete los filtros, tendríamos que mover los selectbox al sidebar.
+    # Por ahora, envía el reporte GLOBAL de la compañía.
+    
+    link_wa = generar_link_whatsapp(df_raw)
+    
+    st.sidebar.markdown(f"""
+    <a href="{link_wa}" target="_blank">
+        <button style="
+            background-color:#25D366; 
+            color:white; 
+            border:none; 
+            padding:10px 20px; 
+            border-radius:5px; 
+            font-weight:bold; 
+            cursor:pointer;
+            width:100%;">
+            Enviar a Gerentes 🚀
+        </button>
+    </a>
+    """, unsafe_allow_html=True)
+
+
 # ==============================================================================
 # PÁGINA 1: CHAT
 # ==============================================================================
@@ -177,7 +260,7 @@ elif pagina == "📊 Reportes Ejecutivos BI":
     
     if not df_raw.empty:
         
-        # --- FILTROS GLOBALES ---
+        # --- FILTROS EN PÁGINA PRINCIPAL ---
         with st.expander("🔍 Filtros Globales (Zona / Ciudad / Red)", expanded=True):
             c_f1, c_f2, c_f3 = st.columns(3)
             
@@ -202,6 +285,30 @@ elif pagina == "📊 Reportes Ejecutivos BI":
             st.warning("⚠️ Sin datos para estos filtros.")
             st.stop()
 
+        # Si hay filtros activos, actualizamos el botón de WhatsApp (RE-RENDERIZAR BOTÓN)
+        # Esto es un truco para que el botón del sidebar tome los filtros de aquí
+        if sel_zona or sel_ciudad or sel_red:
+             link_wa_filt = generar_link_whatsapp(df_view)
+             # Sobrescribimos el botón en el sidebar para que sea contextual
+             st.sidebar.markdown("---")
+             st.sidebar.info("💡 Botón actualizado con filtros actuales")
+             st.sidebar.markdown(f"""
+            <a href="{link_wa_filt}" target="_blank">
+                <button style="
+                    background-color:#128C7E; 
+                    color:white; 
+                    border:none; 
+                    padding:10px 20px; 
+                    border-radius:5px; 
+                    font-weight:bold; 
+                    cursor:pointer;
+                    width:100%;">
+                    Enviar Reporte Filtrado 📲
+                </button>
+            </a>
+            """, unsafe_allow_html=True)
+
+
         # --- SELECTOR DE MÉTRICA ---
         st.markdown("---")
         col_t1, col_t2 = st.columns([2, 1])
@@ -214,7 +321,6 @@ elif pagina == "📊 Reportes Ejecutivos BI":
         # --- 1. PULSO DEL NEGOCIO (KPIs con Delta) ---
         st.header("1. Pulso del Negocio (Comparativo YTD)")
         
-        # Cálculos para KPI YTD (Año actual vs Año Anterior misma fecha)
         anio_actual = df_view['Año'].max()
         anio_anterior = anio_actual - 1
         
@@ -223,7 +329,7 @@ elif pagina == "📊 Reportes Ejecutivos BI":
         fecha_max_actual = df_actual['Fecha'].max()
         fecha_limite_anterior = fecha_max_actual.replace(year=anio_anterior)
         
-        # Datos Año Anterior (Corte a la misma fecha)
+        # Datos Año Anterior
         df_anterior = df_view[(df_view['Año'] == anio_anterior) & (df_view['Fecha'] <= fecha_limite_anterior)]
         
         # Métricas
@@ -245,17 +351,14 @@ elif pagina == "📊 Reportes Ejecutivos BI":
         # --- NUEVA: TABLA COMPARATIVA ANUAL ---
         st.subheader("📈 Tabla Comparativa Histórica")
         
-        # Agrupar por año completo (sin corte de fecha, para ver el cierre anual si aplica)
         df_anual = df_view.groupby('Año').agg(
             Ventas=('Valor', 'sum'),
             Transacciones=('Tx', 'sum')
-        ).sort_index(ascending=False) # Ordenar de más reciente a más antiguo
+        ).sort_index(ascending=False)
         
-        # Calcular variaciones
-        df_anual['Crec. Ventas %'] = df_anual['Ventas'].pct_change(-1) * 100 # vs año anterior (fila de abajo)
+        df_anual['Crec. Ventas %'] = df_anual['Ventas'].pct_change(-1) * 100
         df_anual['Crec. Tx %'] = df_anual['Transacciones'].pct_change(-1) * 100
         
-        # Ordenar columnas y mostrar
         df_anual = df_anual[['Ventas', 'Crec. Ventas %', 'Transacciones', 'Crec. Tx %']]
         
         st.table(
