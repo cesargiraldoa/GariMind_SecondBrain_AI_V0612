@@ -12,6 +12,7 @@ import numpy as np
 
 # --- LIBRERÍAS DE MACHINE LEARNING ---
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, r2_score
 
@@ -94,97 +95,121 @@ def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#2c3e50', form
     plt.tight_layout()
     return fig
 
-# --- FUNCIÓN INTELIGENCIA ARTIFICIAL (SCIKIT-LEARN) ---
+# --- FUNCIÓN IA HÍBRIDA (MEJORADA) ---
 @st.cache_resource
 def entrenar_modelo_predictivo(df):
     """
-    Entrena un modelo Random Forest con los datos históricos.
-    Retorna: modelo, métricas, datos de test.
+    Entrena modelo Híbrido: Random Forest (Patrones) vs Regresión Lineal (Crecimiento).
     """
     try:
-        # 1. Preparar Datos para ML
-        # Agrupamos por fecha para tener venta diaria total
+        # 1. Preparación de Datos (Agrupado Diario)
         df_ml = df.groupby('Fecha')['Valor'].sum().reset_index()
+        df_ml = df_ml.sort_values('Fecha') # Asegurar orden cronológico
         
-        # Ingeniería de Características (Features)
+        # Ingeniería de Características
         df_ml['DiaNum'] = df_ml['Fecha'].dt.dayofweek
         df_ml['DiaMes'] = df_ml['Fecha'].dt.day
         df_ml['Mes'] = df_ml['Fecha'].dt.month
         df_ml['EsFinDeSemana'] = df_ml['DiaNum'].apply(lambda x: 1 if x >= 5 else 0)
-        # Lag (Venta de ayer) - ayuda a capturar tendencias inmediatas
-        df_ml['Lag_1'] = df_ml['Valor'].shift(1).fillna(0)
+        # FechaOrdinal sirve para que la Regresión Lineal entienda el paso del tiempo (crecimiento)
+        df_ml['FechaOrdinal'] = df_ml['Fecha'].apply(lambda x: x.toordinal())
         
-        # Eliminamos primera fila por el Lag vacío
-        df_ml = df_ml.iloc[1:]
+        # Lag (Venta de ayer)
+        df_ml['Lag_1'] = df_ml['Valor'].shift(1).fillna(0)
+        df_ml = df_ml.iloc[1:] # Quitar primera fila vacía
 
-        if len(df_ml) < 10:
-            return None, None # Muy pocos datos para entrenar
+        if len(df_ml) < 10: return None, None, "Insuficiente Data"
 
-        X = df_ml[['DiaNum', 'DiaMes', 'Mes', 'EsFinDeSemana', 'Lag_1']]
+        # 2. Features y Target
+        X = df_ml[['DiaNum', 'DiaMes', 'EsFinDeSemana', 'Lag_1', 'FechaOrdinal']]
         y = df_ml['Valor']
 
-        # 2. Split Train/Test (80% entrenar, 20% validar)
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+        # 3. Split (No aleatorio, respetando el tiempo)
+        # Usamos el 85% pasado para entrenar y el último 15% para probar
+        split_point = int(len(X) * 0.85)
+        X_train, X_test = X.iloc[:split_point], X.iloc[split_point:]
+        y_train, y_test = y.iloc[:split_point], y.iloc[split_point:]
 
-        # 3. Entrenar Random Forest
-        modelo = RandomForestRegressor(n_estimators=100, random_state=42)
-        modelo.fit(X_train, y_train)
+        # 4. INTENTO A: RANDOM FOREST (Bueno para patrones semanales/mensuales)
+        modelo_rf = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+        modelo_rf.fit(X_train, y_train)
+        y_pred_rf = modelo_rf.predict(X_test)
+        r2_rf = r2_score(y_test, y_pred_rf)
 
-        # 4. Evaluar
-        y_pred = modelo.predict(X_test)
-        mae = mean_absolute_error(y_test, y_pred)
-        r2 = r2_score(y_test, y_pred)
+        # 5. INTENTO B: REGRESIÓN LINEAL (Bueno para tendencias de crecimiento)
+        modelo_lr = LinearRegression()
+        modelo_lr.fit(X_train, y_train)
+        y_pred_lr = modelo_lr.predict(X_test)
+        r2_lr = r2_score(y_test, y_pred_lr)
+
+        # 6. COMPETENCIA DE MODELOS
+        # Si el RF falla (negativo) o es peor que la Regresión, usamos Regresión.
+        if r2_rf > 0 and r2_rf > r2_lr:
+            modelo_final = modelo_rf
+            tipo_modelo = "Random Forest (Patrones)"
+            r2_final = r2_rf
+            y_pred_final = y_pred_rf
+        else:
+            modelo_final = modelo_lr
+            tipo_modelo = "Regresión Lineal (Tendencia)"
+            r2_final = r2_lr
+            y_pred_final = y_pred_lr
+
+        mae = mean_absolute_error(y_test, y_pred_final)
+        metrics = {"MAE": mae, "R2": r2_final}
         
-        metrics = {"MAE": mae, "R2": r2}
-        
-        return modelo, metrics
+        return modelo_final, metrics, tipo_modelo
+
     except Exception as e:
         print(f"Error ML: {e}")
-        return None, None
+        return None, None, "Error"
 
 def predecir_cierre_mes(modelo, df_historico, fecha_ultima_real):
-    """Usa el modelo entrenado para predecir los días restantes del mes."""
-    anio = fecha_ultima_real.year
-    mes = fecha_ultima_real.month
-    _, last_day = calendar.monthrange(anio, mes)
-    fecha_fin_mes = pd.Timestamp(anio, mes, last_day)
-    
-    # Generar rango de fechas futuras (desde mañana hasta fin de mes)
-    fecha_inicio_futuro = fecha_ultima_real + pd.Timedelta(days=1)
-    
-    if fecha_inicio_futuro > fecha_fin_mes:
-        return pd.DataFrame(), 0 # Ya acabó el mes
-    
-    rango_futuro = pd.date_range(start=fecha_inicio_futuro, end=fecha_fin_mes)
-    
-    futuro_data = []
-    ultima_venta_conocida = df_historico.groupby('Fecha')['Valor'].sum().iloc[-1]
-    
-    predicciones_sum = 0
-    df_predicciones = []
+    """Proyección Iterativa"""
+    try:
+        anio = fecha_ultima_real.year
+        mes = fecha_ultima_real.month
+        _, last_day = calendar.monthrange(anio, mes)
+        fecha_fin_mes = pd.Timestamp(anio, mes, last_day)
+        
+        fecha_inicio_futuro = fecha_ultima_real + pd.Timedelta(days=1)
+        
+        if fecha_inicio_futuro > fecha_fin_mes:
+            return pd.DataFrame(), 0
+        
+        rango_futuro = pd.date_range(start=fecha_inicio_futuro, end=fecha_fin_mes)
+        
+        df_predicciones = []
+        ultima_venta_conocida = df_historico.groupby('Fecha')['Valor'].sum().iloc[-1]
+        lag_actual = ultima_venta_conocida
+        predicciones_sum = 0
+        
+        for fecha in rango_futuro:
+            features = {
+                'DiaNum': fecha.dayofweek,
+                'DiaMes': fecha.day,
+                'EsFinDeSemana': 1 if fecha.dayofweek >= 5 else 0,
+                'Lag_1': lag_actual,
+                'FechaOrdinal': fecha.toordinal()
+            }
+            # DataFrame de 1 fila para predicción
+            X_futuro = pd.DataFrame([features])
+            
+            # Ajustar columnas al orden de entrenamiento (importante para sklearn)
+            # X_futuro = X_futuro[['DiaNum', 'DiaMes', 'EsFinDeSemana', 'Lag_1', 'FechaOrdinal']]
 
-    # Predicción iterativa (Rolling Forecast)
-    # Necesitamos predecir el día 1 para usarlo como 'Lag' del día 2, etc.
-    lag_actual = ultima_venta_conocida
-    
-    for fecha in rango_futuro:
-        features = {
-            'DiaNum': fecha.dayofweek,
-            'DiaMes': fecha.day,
-            'Mes': fecha.month,
-            'EsFinDeSemana': 1 if fecha.dayofweek >= 5 else 0,
-            'Lag_1': lag_actual
-        }
-        X_futuro = pd.DataFrame([features])
-        pred = modelo.predict(X_futuro)[0]
+            pred = modelo.predict(X_futuro)[0]
+            pred = max(0, pred) # No ventas negativas
+            
+            predicciones_sum += pred
+            lag_actual = pred 
+            
+            df_predicciones.append({'Fecha': fecha, 'Predicción': pred})
         
-        # Guardamos para el reporte y para el siguiente lag
-        predicciones_sum += pred
-        lag_actual = pred 
-        
-        df_predicciones.append({'Fecha': fecha, 'Predicción': pred})
-    
-    return pd.DataFrame(df_predicciones), predicciones_sum
+        return pd.DataFrame(df_predicciones), predicciones_sum
+    except Exception as e:
+        print(f"Error Predicción: {e}")
+        return pd.DataFrame(), 0
 
 # --- REPORTE WA ---
 @st.cache_data(show_spinner=False) 
@@ -375,43 +400,44 @@ if pagina == "📊 Reporte Comando y Control":
             st.dataframe(df_act.groupby(['ZONA', 'Sucursal'])[['Valor', 'Tx']].sum().sort_values('Valor', ascending=False))
 
 # ==============================================================================
-# PÁGINA: PREDICCIONES AI (RANDOM FOREST)
+# PÁGINA: PREDICCIONES AI HÍBRIDA
 # ==============================================================================
 elif pagina == "🔮 Predicciones AI":
-    st.title("🔮 Modelo Predictivo IA (Random Forest)")
+    st.title("🔮 Modelo Predictivo Híbrido (Tendencia + Patrones)")
     
     if not df_raw.empty:
-        # 1. Preparación de Datos
+        # Preparación de Datos
         anio_actual = df_raw['Año'].max()
         df_act = df_raw[df_raw['Año'] == anio_actual]
         mes_actual = df_act['Fecha'].max().month
         nombre_mes = meses_es[mes_actual]
         fecha_max = df_act['Fecha'].max()
         
-        st.markdown(f"### 🤖 Entrenamiento del Modelo Predictivo")
-        st.write("El sistema está analizando patrones históricos (Día de la semana, estacionalidad mensual y tendencias recientes) usando un algoritmo de **Bosques Aleatorios (Random Forest)**.")
+        # --- NUEVA VISUALIZACIÓN DE HISTORIA ---
+        with st.expander("📂 Ver Historia de Datos (Validación de Entrenamiento)", expanded=False):
+            st.caption("A continuación se muestra la historia completa que la IA está usando para aprender (2022-2025):")
+            historia_diaria = df_raw.groupby('Fecha')['Valor'].sum().reset_index()
+            fig_h, ax_h = plt.subplots(figsize=(10, 3))
+            ax_h.plot(historia_diaria['Fecha'], historia_diaria['Valor'], color='gray', linewidth=0.5)
+            ax_h.set_title("Ventas Históricas Totales")
+            st.pyplot(fig_h)
+
+        st.markdown(f"### 🤖 Estado del Modelo Inteligente")
+        st.info("El sistema está compitiendo dos cerebros: **Random Forest** (para patrones cíclicos) vs **Regresión Lineal** (para tendencias de crecimiento). Seleccionará automáticamente el mejor.")
         
-        with st.spinner("Entrenando red neuronal simplificada..."):
-            modelo, metricas = entrenar_modelo_predictivo(df_raw)
+        with st.spinner("Compitiendo modelos matemáticos..."):
+            modelo, metricas, nombre_modelo = entrenar_modelo_predictivo(df_raw)
         
         if modelo:
-            # Mostrar Métricas de Calidad
-            st.success("Modelo entrenado exitosamente.")
+            st.success(f"🏆 Modelo Ganador: **{nombre_modelo}**")
             
-            with st.expander("📊 Ver Métricas de Confianza del Modelo (Auditoría Técnica)", expanded=True):
+            with st.expander("📊 Auditoría Técnica del Modelo", expanded=True):
                 m1, m2 = st.columns(2)
                 r2_val = metricas['R2']
                 mae_val = metricas['MAE']
                 
-                m1.metric("R² (Precisión de Varianza)", f"{r2_val:.2f}", help="Indica qué tan bien el modelo replica los patrones históricos. 1.0 es perfecto, 0.0 es aleatorio.")
-                m2.metric("MAE (Margen de Error Diario)", f"${mae_val:,.0f}", help="Promedio de error en pesos que el modelo puede tener por día.")
-                
-                if r2_val > 0.7:
-                    st.caption("✅ **Modelo Confiable:** El R² indica una alta capacidad predictiva.")
-                elif r2_val > 0.4:
-                    st.caption("⚠️ **Modelo Regular:** Puede servir como guía, pero con cautela.")
-                else:
-                    st.caption("❌ **Modelo No Confiable:** Faltan datos históricos para patrones claros.")
+                m1.metric("R² (Precisión)", f"{r2_val:.2f}", help="Cercano a 1.0 es excelente. Si es bajo pero positivo, indica que sigue la tendencia general.")
+                m2.metric("MAE (Error Diario Promedio)", f"${mae_val:,.0f}")
 
             # --- PROYECCIÓN ---
             st.markdown("---")
@@ -427,18 +453,18 @@ elif pagina == "🔮 Predicciones AI":
                 k1, k2, k3 = st.columns(3)
                 k1.metric("Venta Real (Hoy)", f"${venta_acumulada_hoy:,.0f}")
                 k2.metric("Predicción Días Restantes", f"${suma_futura:,.0f}", f"{len(df_pred)} días")
-                k3.metric("Cierre Estimado IA", f"${cierre_estimado:,.0f}", delta="Modelo ML")
+                k3.metric("Cierre Estimado IA", f"${cierre_estimado:,.0f}", delta=f"Modelo: {nombre_modelo}")
                 
-                # Gráfico de la Predicción
+                # Gráfico
                 st.subheader("📅 Calendario Predictivo")
                 df_pred['Día'] = df_pred['Fecha'].dt.day
-                
                 fig, ax = plt.subplots(figsize=(10, 4))
                 ax.plot(df_pred['Día'], df_pred['Predicción'], marker='o', linestyle='--', color='#27ae60', label='Predicción IA')
-                ax.set_title("Comportamiento Esperado para el Resto del Mes")
+                ax.set_title(f"Comportamiento Esperado (Usando {nombre_modelo})")
                 ax.set_xlabel("Día del Mes")
                 ax.set_ylabel("Venta Proyectada")
                 ax.grid(True, alpha=0.3)
+                ax.legend()
                 st.pyplot(fig)
             else:
                 st.success(f"🏁 Mes terminado. Cierre Total: ${venta_acumulada_hoy:,.0f}")
@@ -450,21 +476,21 @@ elif pagina == "🔮 Predicciones AI":
             
             c_meta1, c_meta2 = st.columns([1, 2])
             with c_meta1:
-                meta_input = st.number_input(f"Define tu Meta para {nombre_mes} ($)", value=float(cierre_estimado * 1.05), step=1000000.0)
+                meta_input = st.number_input(f"Meta {nombre_mes} ($)", value=float(cierre_estimado * 1.05), step=1000000.0)
             
             with c_meta2:
                 diff = cierre_estimado - meta_input
-                pct_cumplimiento = (cierre_estimado / meta_input) * 100
+                pct_cumplimiento = (cierre_estimado / meta_input) * 100 if meta_input > 0 else 0
                 
-                st.metric("Cumplimiento Proyectado (IA)", f"{pct_cumplimiento:.1f}%", f"${diff:,.0f} vs Meta")
+                st.metric("Cumplimiento Proyectado", f"{pct_cumplimiento:.1f}%", f"${diff:,.0f} vs Meta")
                 
                 if diff < 0:
-                    st.warning(f"⚠️ La IA predice que faltarán **${abs(diff):,.0f}** para la meta.")
+                    st.warning(f"⚠️ Faltan **${abs(diff):,.0f}** para la meta.")
                 else:
-                    st.success("🚀 La IA predice que superarás la meta.")
+                    st.success("🚀 Superarás la meta según la tendencia actual.")
 
         else:
-            st.warning("No hay suficientes datos históricos para entrenar la IA (mínimo 10 días).")
+            st.error("No hay suficientes datos para generar una predicción confiable.")
 
 # ==============================================================================
 # PÁGINA: MAPA
