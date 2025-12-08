@@ -26,9 +26,9 @@ def check_password():
             clave = st.text_input("Contraseña", type="password")
             
             if st.button("Ingresar 🔐"):
-                # --- AQUÍ CONFIGURAS TUS USUARIOS ---
+                # --- USUARIOS CONFIGURADOS ---
                 usuarios_validos = {
-                    "gerente": "alivio2025",  # <--- CONTRASEÑA ACTUALIZADA
+                    "gerente": "alivio2025", 
                     "admin": "admin123",
                     "gari": "hamster"
                 }
@@ -95,44 +95,56 @@ def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db', form
     return fig
 
 # --- FUNCIÓN REPORTE PMV COMPLETO (WHATSAPP) ---
+# 🔥 OPTIMIZACIÓN CRÍTICA: @st.cache_data para evitar recalcular y colgar la app
+@st.cache_data(show_spinner=False) 
 def generar_reporte_pmv_whatsapp(df):
     try:
         if df.empty: return "https://wa.me/"
         anio_actual = df['Año'].max()
-        df_act = df[df['Año'] == anio_actual]
+        df_act = df[df['Año'] == anio_actual].copy() # Usamos copy para no afectar original
         
         if df_act.empty: return "https://wa.me/"
 
+        # Pre-calcular agrupamientos (Mucho más rápido que filtrar en bucle)
         # Nivel 1: Total
         v_total = df_act['Valor'].sum()
         tx_total = len(df_act)
         
+        # Nivel 2: Agrupado por Zonas
+        df_zonas = df_act.groupby('ZONA')['Valor'].sum().sort_values(ascending=False)
+        
+        # Nivel 3: Agrupado por Zona y Sucursal (Pre-calculado)
+        df_detalle = df_act.groupby(['ZONA', 'Sucursal'])['Valor'].sum().reset_index()
+        
+        # --- CONSTRUCCIÓN DEL MENSAJE ---
         mensaje = f"*🐹 REPORTE PMV - DENTISALUD {anio_actual}*\n"
         mensaje += f"📅 Corte: {df_act['Fecha'].max().strftime('%d/%m/%Y')}\n\n"
+        
         mensaje += f"🏢 *TOTAL COMPAÑÍA*\n"
         mensaje += f"💰 Venta: ${v_total:,.0f}\n"
         mensaje += f"🧾 Tx: {tx_total:,.0f}\n"
-        mensaje += "➖➖➖➖➖➖➖➖\n\n"
+        mensaje += "➖➖➖➖➖➖➖➖\n" # Quitamos salto extra para ahorrar espacio URL
 
-        # Nivel 2: Zonas
-        mensaje += f"📍 *ACUMULADO POR ZONA*\n"
-        df_zonas = df_act.groupby('ZONA')['Valor'].sum().sort_values(ascending=False)
-        for zona, valor in df_zonas.items():
-            mensaje += f"🔹 {zona}: ${valor:,.0f}\n"
-        mensaje += "➖➖➖➖➖➖➖➖\n\n"
-
-        # Nivel 3: Detalle
-        mensaje += f"🏥 *DETALLE POR CLÍNICA*\n"
-        for zona in df_zonas.index:
-            mensaje += f"\n🔸 *{zona}*\n"
-            df_cli = df_act[df_act['ZONA'] == zona].groupby('Sucursal')['Valor'].sum().sort_values(ascending=False)
-            for sucursal, venta in df_cli.items():
-                mensaje += f"   • {sucursal}: ${venta:,.0f}\n"
+        # Iteración optimizada
+        for zona, valor_zona in df_zonas.items():
+            mensaje += f"\n📍 *{zona}*: ${valor_zona:,.0f}\n"
+            
+            # Filtramos sobre el dataframe PEQUEÑO pre-agrupado (rápido)
+            sucursales_zona = df_detalle[df_detalle['ZONA'] == zona].sort_values('Valor', ascending=False)
+            
+            for _, row in sucursales_zona.iterrows():
+                # Limite de seguridad: WhatsApp a veces falla con URLs muy largas.
+                # Opcional: Podríamos poner un break aquí si son demasiadas clínicas.
+                mensaje += f"   • {row['Sucursal']}: ${row['Valor']:,.0f}\n"
 
         mensaje += "\n_Generado por Gari AI_ 🐹"
+        
+        # Codificar URL (safe para caracteres especiales)
         mensaje_codificado = urllib.parse.quote(mensaje)
         return f"https://wa.me/?text={mensaje_codificado}"
+        
     except Exception as e:
+        print(f"Error generando reporte WA: {e}")
         return "https://wa.me/"
 
 # --- CARGA DE DATOS ---
@@ -362,6 +374,7 @@ if not df_raw.empty:
     st.sidebar.markdown("---")
     st.sidebar.header("📲 Reporte Gerencial")
     
+    # Generamos el reporte usando la función cacheada
     link_wa = generar_reporte_pmv_whatsapp(df_raw)
     
     st.sidebar.markdown(f"""
