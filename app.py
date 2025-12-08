@@ -25,7 +25,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🎨 CSS BLINDADO (CORRECCIÓN VISUAL TOTAL)
+# 🎨 CSS BLINDADO
 # ==============================================================================
 st.markdown("""
     <style>
@@ -38,33 +38,26 @@ st.markdown("""
             color: #ffffff !important;
         }
 
-        /* 2. BARRA LATERAL (SIDEBAR) - BLINDAJE VISUAL */
-        /* Forzamos fondo negro y borde rojo */
+        /* 2. BARRA LATERAL (SIDEBAR) */
         [data-testid="stSidebar"] {
             background-color: #000000 !important;
             border-right: 2px solid #cc0000 !important;
         }
-        
-        /* Forzamos que CUALQUIER texto en la barra lateral sea blanco */
         [data-testid="stSidebar"] * {
             color: #ffffff !important;
         }
-
-        /* Corregir inputs (cajas de texto) en la barra lateral */
         [data-testid="stSidebar"] input {
             background-color: #111111 !important;
             color: #ffffff !important;
             border: 1px solid #cc0000 !important;
         }
-        
-        /* Corregir etiquetas de los inputs */
         [data-testid="stSidebar"] label {
-            color: #fcd700 !important; /* Amarillo para títulos de inputs */
+            color: #fcd700 !important;
             font-family: 'Orbitron', sans-serif !important;
             font-size: 0.8rem !important;
         }
 
-        /* 3. TIPOGRAFÍA GENERAL */
+        /* 3. TIPOGRAFÍA */
         h1, h2, h3, h4 {
             font-family: 'Orbitron', sans-serif !important;
             color: #ffffff !important;
@@ -94,7 +87,7 @@ st.markdown("""
             color: #cccccc !important;
         }
 
-        /* 5. BOTONES (Estilo F1) */
+        /* 5. BOTONES */
         .stButton > button {
             background: linear-gradient(90deg, #cc0000 0%, #990000 100%) !important;
             color: white !important;
@@ -109,7 +102,7 @@ st.markdown("""
             box-shadow: 0 0 15px rgba(204, 0, 0, 0.8);
         }
 
-        /* 6. TABLAS (Texto blanco forzado) */
+        /* 6. TABLAS */
         [data-testid="stTable"] {
             color: white !important;
         }
@@ -139,7 +132,6 @@ if 'authenticated' not in st.session_state:
 
 def check_password():
     def login_form():
-        # Sidebar simplificado para Login
         with st.sidebar:
             st.markdown("### 🔒 SECURITY CHECK")
             st.info("Biometrics required")
@@ -184,22 +176,6 @@ if not check_password():
 # ==============================================================================
 # 🚀 APLICACIÓN PRINCIPAL
 # ==============================================================================
-
-# --- SIDEBAR: PIT WALL ---
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 20px;">
-        <h2 style="color:#cc0000; border-bottom: 2px solid #fcd700; padding-bottom: 10px;">PIT WALL</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"**👤 DRIVER:** `Conectado`")
-    
-    if st.button("BOX BOX (LOGOUT)"):
-        st.session_state.authenticated = False
-        st.rerun()
-        
-    st.markdown("---")
 
 # --- HERRAMIENTAS ---
 meses_es = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
@@ -320,12 +296,35 @@ def analizar_gpt(df, p, k):
     except: return "Error", None, None, ""
 
 # --- NAV ---
-pagina = st.sidebar.radio("MENÚ DE CARRERA", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🗺️ Track Map", "🧠 Ingeniero IA"])
-
-if "OPENAI_API_KEY" in st.secrets: api_key = st.secrets["OPENAI_API_KEY"]
-else: api_key = st.sidebar.text_input("🔑 API KEY:", type="password")
-
-with st.spinner("Calentando..."): df_raw = cargar_datos_integrados()
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 20px;">
+        <h2 style="color:#cc0000; border-bottom: 2px solid #fcd700; padding-bottom: 10px;">PIT WALL</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown(f"**👤 DRIVER:** `Conectado`")
+    if st.button("BOX BOX (LOGOUT)"):
+        st.session_state.authenticated = False
+        st.rerun()
+    st.markdown("---")
+    
+    # 🚨 AQUÍ ESTÁ LA MAGIA: CARGAR DATOS Y BOTÓN WA ANTES DE RENDERIZAR PÁGINAS 🚨
+    with st.spinner("Calentando..."): df_raw = cargar_datos_integrados()
+    
+    if not df_raw.empty:
+        link = generar_reporte_pmv_whatsapp(df_raw)
+        st.markdown(f"""
+        <a href="{link}" target="_blank">
+            <button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">
+            📲 RADIO A BOXES (WhatsApp)
+            </button>
+        </a>
+        """, unsafe_allow_html=True)
+        
+    pagina = st.radio("MENÚ DE CARRERA", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🗺️ Track Map", "🧠 Ingeniero IA"])
+    
+    if "OPENAI_API_KEY" in st.secrets: api_key = st.secrets["OPENAI_API_KEY"]
+    else: api_key = st.text_input("🔑 API KEY:", type="password")
 
 # --- PÁGINAS ---
 if pagina == "📊 Telemetría en Vivo":
@@ -438,8 +437,3 @@ elif pagina == "🧠 Ingeniero IA":
         if txt: st.info(txt)
         if tbl is not None: st.dataframe(tbl)
         if fig: st.pyplot(fig)
-
-if not df_raw.empty:
-    st.sidebar.markdown("---")
-    link = generar_reporte_pmv_whatsapp(df_raw)
-    st.sidebar.markdown(f"""<a href="{link}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold;">📲 RADIO A BOXES (WhatsApp)</button></a>""", unsafe_allow_html=True)
