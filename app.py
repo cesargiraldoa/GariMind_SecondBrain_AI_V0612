@@ -15,11 +15,11 @@ meses_es = {
     9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
 }
 
-orden_dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 dias_es = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
 
 # --- ESTILOS CSS ---
 def color_negative_red(val):
+    """Pone en rojo los valores negativos y en negro los positivos"""
     if isinstance(val, (int, float)) and val < 0:
         return 'color: #ff4b4b; font-weight: bold'
     return 'color: black'
@@ -71,7 +71,7 @@ def cargar_datos_integrados():
         df['Dia'] = df['DiaNum'].map(dias_es)
         df['Tx'] = 1 
         
-        # 2. DATOS MAESTROS ZONAS (HARDCODED) - Para no depender del archivo
+        # 2. DATOS MAESTROS ZONAS (HARDCODED)
         datos_zonas = {
             'CLINICAS': ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'PASEO VILLA DEL RIO', 'CENTRO MAYOR', 'MULTIPLAZA', 'SALITRE', 'UNICENTRO', 'ITAGUI', 'LA PLAYA', 'POBLADO', 'CALI CIUDAD JARDIN', 'CALLE 80', 'GRAN ESTACION', 'CEDRITOS', 'PORTAL 80', 'CENTRO', 'VILLAVICENCIO', 'KENNEDY', 'ROMA', 'VILLAS', 'ALAMOS', 'CALI AV 6TA', 'MALL PLAZA BOGOTA', 'CALI CALIMA', 'PLAZA DE LAS AMERICAS', 'SUBA PLAZA IMPERIAL', 'MALL PLAZA BARRANQUILLA', 'LA FLORESTA', 'PALMIRA', 'RESTREPO', 'MALL PLAZA CALI'], 
             'ZONA': ['ZONA 4', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 5', 'ZONA 3', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 4', 'ZONA 4', 'ZONA 2', 'ZONA 4', 'ZONA 1', 'ZONA 3', 'ZONA 1', 'ZONA 5', 'ZONA 3', 'ZONA 2', 'ZONA 2', 'ZONA 1', 'ZONA 4', 'ZONA 1'], 
@@ -111,7 +111,6 @@ def analizar_con_gpt(df, pregunta, api_key):
         client = openai.OpenAI(api_key=api_key)
         buffer = io.StringIO()
         
-        # Solo enviamos info relevante para ahorrar tokens
         cols_export = ['Fecha', 'Sucursal', 'Valor', 'ZONA', 'CIUDAD', 'RED'] 
         cols_existentes = [c for c in cols_export if c in df.columns]
         
@@ -182,7 +181,6 @@ elif pagina == "📊 Reportes Ejecutivos BI":
         with st.expander("🔍 Filtros Globales (Zona / Ciudad / Red)", expanded=True):
             c_f1, c_f2, c_f3 = st.columns(3)
             
-            # Filtros encadenados
             opc_zona = sorted(df_raw['ZONA'].astype(str).unique())
             sel_zona = c_f1.multiselect("Zona", opc_zona)
             
@@ -194,7 +192,7 @@ elif pagina == "📊 Reportes Ejecutivos BI":
             opc_red = sorted(df_temp2['RED'].astype(str).unique())
             sel_red = c_f3.multiselect("Red", opc_red)
 
-        # Aplicar Filtros al DataFrame Vista (df_view)
+        # Aplicar Filtros
         df_view = df_raw.copy()
         if sel_zona: df_view = df_view[df_view['ZONA'].isin(sel_zona)]
         if sel_ciudad: df_view = df_view[df_view['CIUDAD'].isin(sel_ciudad)]
@@ -213,26 +211,68 @@ elif pagina == "📊 Reportes Ejecutivos BI":
             fmt_kpi = 'dinero' if metrica_grafico == "Ventas ($)" else 'numero'
             color_kpi = '#3498db' if metrica_grafico == "Ventas ($)" else '#8e44ad'
 
-        # --- 1. PULSO DEL NEGOCIO ---
-        st.header("1. Pulso del Negocio (YTD)")
-        anio_actual = df_view['Año'].max()
-        df_actual = df_view[df_view['Año'] == anio_actual]
+        # --- 1. PULSO DEL NEGOCIO (KPIs con Delta) ---
+        st.header("1. Pulso del Negocio (Comparativo YTD)")
         
+        # Cálculos para KPI YTD (Año actual vs Año Anterior misma fecha)
+        anio_actual = df_view['Año'].max()
+        anio_anterior = anio_actual - 1
+        
+        # Datos Actuales
+        df_actual = df_view[df_view['Año'] == anio_actual]
+        fecha_max_actual = df_actual['Fecha'].max()
+        fecha_limite_anterior = fecha_max_actual.replace(year=anio_anterior)
+        
+        # Datos Año Anterior (Corte a la misma fecha)
+        df_anterior = df_view[(df_view['Año'] == anio_anterior) & (df_view['Fecha'] <= fecha_limite_anterior)]
+        
+        # Métricas
         v_act = df_actual['Valor'].sum()
+        v_ant = df_anterior['Valor'].sum()
+        delta_v = ((v_act - v_ant) / v_ant) * 100 if v_ant > 0 else 0
+        
         tx_act = len(df_actual)
+        tx_ant = len(df_anterior)
+        delta_tx = ((tx_act - tx_ant) / tx_ant) * 100 if tx_ant > 0 else 0
+        
         tk = v_act / tx_act if tx_act > 0 else 0
         
         k1, k2, k3 = st.columns(3)
-        k1.metric(f"Ventas {anio_actual}", f"${v_act:,.0f}")
-        k2.metric(f"Transacciones", f"{tx_act:,}")
+        k1.metric(f"Ventas {anio_actual} (YTD)", f"${v_act:,.0f}", f"{delta_v:+.1f}%")
+        k2.metric(f"Transacciones (YTD)", f"{tx_act:,}", f"{delta_tx:+.1f}%")
         k3.metric("Ticket Promedio", f"${tk:,.0f}")
+        
+        # --- NUEVA: TABLA COMPARATIVA ANUAL ---
+        st.subheader("📈 Tabla Comparativa Histórica")
+        
+        # Agrupar por año completo (sin corte de fecha, para ver el cierre anual si aplica)
+        df_anual = df_view.groupby('Año').agg(
+            Ventas=('Valor', 'sum'),
+            Transacciones=('Tx', 'sum')
+        ).sort_index(ascending=False) # Ordenar de más reciente a más antiguo
+        
+        # Calcular variaciones
+        df_anual['Crec. Ventas %'] = df_anual['Ventas'].pct_change(-1) * 100 # vs año anterior (fila de abajo)
+        df_anual['Crec. Tx %'] = df_anual['Transacciones'].pct_change(-1) * 100
+        
+        # Ordenar columnas y mostrar
+        df_anual = df_anual[['Ventas', 'Crec. Ventas %', 'Transacciones', 'Crec. Tx %']]
+        
+        st.table(
+            df_anual.style.format({
+                "Ventas": "${:,.0f}",
+                "Transacciones": "{:,.0f}",
+                "Crec. Ventas %": "{:+.1f}%",
+                "Crec. Tx %": "{:+.1f}%"
+            }).applymap(color_negative_red, subset=['Crec. Ventas %', 'Crec. Tx %'])
+        )
         
         st.markdown("---")
         
         # --- 2. ANÁLISIS GLOBAL ---
         st.header(f"2. Análisis Global {anio_actual}")
         
-        # A) Gráfico Zonas (Solo si no filtro por una sola zona)
+        # A) Gráfico Zonas
         if not sel_zona or len(sel_zona) > 1:
             st.subheader("A. Desempeño por Zona")
             df_z = df_actual.groupby('ZONA')[col_kpi].sum().reset_index().sort_values(col_kpi, ascending=False)
@@ -254,19 +294,17 @@ elif pagina == "📊 Reportes Ejecutivos BI":
             fig_dias = graficar_barras_pro(df_dias, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi)
             st.pyplot(fig_dias)
 
-        # --- 3. ANÁLISIS POR CLÍNICA (RECUPERADO) ---
+        # --- 3. ANÁLISIS POR CLÍNICA ---
         st.markdown("---")
         st.header("🏥 3. Análisis por Clínica (Detalle)")
         st.info("Despliega cada clínica para ver su detalle individual. Responde a los filtros globales.")
 
-        # Obtenemos las sucursales FILTRADAS (no todas las raw)
         sucursales_filtradas = sorted(df_actual['Sucursal'].unique())
         
         if not sucursales_filtradas:
             st.warning("No hay clínicas para mostrar con los filtros actuales.")
 
         for suc in sucursales_filtradas:
-            # Info extra para el título del expander
             info_suc = df_actual[df_actual['Sucursal'] == suc].iloc[0]
             label_zona = info_suc.get('ZONA', 'N/A')
             
@@ -275,7 +313,7 @@ elif pagina == "📊 Reportes Ejecutivos BI":
                 
                 c1, c2 = st.columns(2)
                 
-                # Gráficos Dinámicos de la Sucursal
+                # Gráficos Sucursal
                 with c1:
                     df_s_mes = df_suc.groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
                     df_s_mes['Mes'] = df_s_mes['MesNum'].map(meses_es)
@@ -287,7 +325,7 @@ elif pagina == "📊 Reportes Ejecutivos BI":
                     fig_sd = graficar_barras_pro(df_s_dia, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi)
                     st.pyplot(fig_sd)
                 
-                # Tabla Detallada con Variaciones
+                # Tabla Sucursal
                 df_s_mes['Var $'] = df_s_mes['Valor'].pct_change() * 100
                 df_s_mes['Var Tx'] = df_s_mes['Tx'].pct_change() * 100
                 
