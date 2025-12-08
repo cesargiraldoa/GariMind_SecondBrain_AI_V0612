@@ -4,63 +4,52 @@ import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
 
-# --- HERRAMIENTAS ---
+# --- HERRAMIENTAS DE TIEMPO ---
 meses_es = {
     1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
     5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
     9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
 }
 
-# --- ESTILOS CSS PARA TABLAS ---
+dias_es = {
+    0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 
+    4: 'Viernes', 5: 'Sábado', 6: 'Domingo'
+}
+
+# --- ESTILOS CSS ---
 def color_negative_red(val):
-    """Pinta de rojo los negativos en las tablas"""
     if isinstance(val, (int, float)) and val < 0:
         return 'color: #ff4b4b; font-weight: bold'
     return 'color: black'
 
-# --- FUNCIÓN GRÁFICA PRO (ESTILO SEMÁFORO) ---
-def graficar_barras_pro(df_g, x_col, y_col, titulo, tipo_dato='dinero'):
-    """
-    Genera gráficos estéticos.
-    - tipo_dato: 'dinero' (azul corporativo) o 'variacion' (verde/rojo)
-    """
-    fig, ax = plt.subplots(figsize=(10, 4))
+# --- FUNCIÓN GRÁFICA MEJORADA (VERTICAL + LIMPIA) ---
+def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db'):
+    fig, ax = plt.subplots(figsize=(10, 5)) # Un poco más alto
     
-    # 1. Definir Colores (Lógica Semáforo)
-    if tipo_dato == 'variacion':
-        colores = ['#2ecc71' if x >= 0 else '#ff4b4b' for x in df_g[y_col]] # Verde / Rojo
-    else:
-        colores = '#3498db' # Azul Corporativo
-        
-    # 2. Crear Barras
-    bars = ax.bar(df_g[x_col], df_g[y_col], color=colores, edgecolor='none', alpha=0.9)
+    # Barras
+    bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='none', alpha=0.85)
     
-    # 3. Etiquetas de Datos (Encima de la barra)
-    if tipo_dato == 'dinero':
-        fmt = '${:,.0f}' 
-    else:
-        fmt = '{:+.1f}%' # Con signo + o -
-        
-    ax.bar_label(bars, fmt=fmt, padding=3, fontsize=10, fontweight='bold', color='#2c3e50')
+    # ETIQUETAS VERTICALES (SOLUCIÓN AL TRASLAPE)
+    # padding=5 las separa de la barra, rotation=90 las pone paradas
+    ax.bar_label(bars, fmt='${:,.0f}', padding=5, rotation=90, fontsize=9, fontweight='bold', color='#2c3e50')
     
-    # 4. Limpieza Visual (Minimalismo)
+    # Aumentar el techo del gráfico (margen superior) para que quepan los números
+    y_max = df_g[y_col].max()
+    ax.set_ylim(0, y_max * 1.35) # 35% más de espacio arriba
+    
+    # Limpieza visual
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False) # Quitamos eje Y izquierdo para limpiar
-    ax.get_yaxis().set_visible(False)    # Ocultamos números del eje Y (ya están las etiquetas)
+    ax.spines['left'].set_visible(False)
+    ax.get_yaxis().set_visible(False)
     
-    # 5. Títulos y Ejes
-    ax.set_title(titulo, fontsize=14, fontweight='bold', color='#2c3e50', pad=20)
-    plt.xticks(rotation=0, fontsize=10, color='#2c3e50') # Texto horizontal si cabe
-    
-    # Línea base en 0 para variaciones
-    if tipo_dato == 'variacion':
-        ax.axhline(0, color='grey', linewidth=0.8)
-        
+    ax.set_title(titulo, fontsize=13, fontweight='bold', color='#2c3e50', pad=20)
+    plt.xticks(rotation=0, fontsize=10) # Texto horizontal en eje X
     plt.tight_layout()
     return fig
 
@@ -70,17 +59,24 @@ def cargar_datos_sql():
     try:
         conn = st.connection("sql", type="sql")
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
+        
+        # Limpieza
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
+        
+        # Columnas BI
         df['Año'] = df['Fecha'].dt.year
         df['MesNum'] = df['Fecha'].dt.month
         df['Mes'] = df['MesNum'].map(meses_es)
+        df['DiaNum'] = df['Fecha'].dt.dayofweek
+        df['Dia'] = df['DiaNum'].map(dias_es)
+        
         return df
     except Exception as e:
         st.error(f"Error SQL: {e}")
         return pd.DataFrame()
 
-# --- FUNCIÓN CEREBRO (CHAT) ---
+# --- FUNCIÓN CHAT ---
 def analizar_con_gpt(df, pregunta, api_key):
     try:
         client = openai.OpenAI(api_key=api_key)
@@ -90,14 +86,13 @@ def analizar_con_gpt(df, pregunta, api_key):
         info_cols = df.dtypes.to_string()
         
         prompt_system = """
-        Eres Gari. Usa 'df' y 'Fecha'. 
-        Outputs: 'resultado', 'tabla_resultados' (ordenada cronológicamente), 'fig' (con etiquetas).
+        Eres Gari. Usa 'df'. Reglas:
+        1. Usa 'Fecha'.
+        2. Outputs: 'resultado', 'tabla_resultados' (ordenada cronológicamente), 'fig'.
         """
         prompt_user = f"Info: {info_cols}\nMuestra: {muestra}\nPregunta: {pregunta}\nCódigo Python only."
-
         response = client.chat.completions.create(model="gpt-4o", messages=[{"role":"system","content":prompt_system},{"role":"user","content":prompt_user}], temperature=0)
         codigo = response.choices[0].message.content.replace("```python", "").replace("```", "").strip()
-        
         local_vars = {'df': df, 'pd': pd, 'plt': plt, 'ticker': ticker, 'meses_es': meses_es}
         exec(codigo, globals(), local_vars)
         return (local_vars.get('resultado', None), local_vars.get('fig', None), local_vars.get('tabla_resultados', None), codigo)
@@ -105,7 +100,7 @@ def analizar_con_gpt(df, pregunta, api_key):
 
 # --- INTERFAZ PRINCIPAL ---
 st.sidebar.image("https://img.freepik.com/premium-photo/cute-hamster-face-portrait_1029469-218417.jpg", width=120, caption="Gari 🐹")
-pagina = st.sidebar.radio("Navegación", ["🧠 Chat con Gari", "📊 Reportes Ejecutivos (Visual Pro)", "🗺️ Mapa"])
+pagina = st.sidebar.radio("Navegación", ["🧠 Chat con Gari", "📊 Reportes Ejecutivos BI", "🗺️ Mapa"])
 
 if "OPENAI_API_KEY" in st.secrets:
     api_key = st.secrets["OPENAI_API_KEY"]
@@ -138,94 +133,107 @@ if pagina == "🧠 Chat con Gari":
             else: st.error("Falta API Key")
 
 # ==============================================================================
-# PÁGINA 2: REPORTES EJECUTIVOS PRO
+# PÁGINA 2: REPORTES EJECUTIVOS BI (VERSION MAESTRA)
 # ==============================================================================
-elif pagina == "📊 Reportes Ejecutivos (Visual Pro)":
-    st.title("📊 Informe Gerencial de Alto Impacto")
+elif pagina == "📊 Reportes Ejecutivos BI":
+    st.title("📊 Tablero de Comando Gerencial")
     
     if not df_raw.empty:
         
-        st.header("🏢 Panorama Global")
+        # --- SECCIÓN A: KPIS ESTRATÉGICOS (¿VAMOS GANANDO?) ---
+        st.header("1. Pulso del Negocio (YTD)")
         
-        # --- A) COMPARATIVO ANUAL ---
-        st.subheader("1. Evolución Anual")
-        df_anual = df_raw.groupby('Año')['Valor'].sum().reset_index().sort_values('Año')
-        df_anual['Crecimiento %'] = df_anual['Valor'].pct_change() * 100
+        # Lógica de Comparación Año a la Fecha (YTD)
+        anio_actual = df_raw['Año'].max()
+        anio_anterior = anio_actual - 1
         
-        # Gráfico Anual (Dinero)
-        fig_anual = graficar_barras_pro(df_anual, 'Año', 'Valor', 'Ventas Totales por Año', tipo_dato='dinero')
-        st.pyplot(fig_anual)
+        # Fecha máxima de datos en el año actual (para cortar el año anterior igual)
+        fecha_corte = df_raw[df_raw['Año'] == anio_actual]['Fecha'].max()
+        # Creamos una fecha límite para el año anterior (mismo día y mes)
+        fecha_limite_anterior = fecha_corte.replace(year=anio_anterior)
         
-        # Tabla Anual
-        st.dataframe(df_anual.style.format({"Valor": "${:,.0f}", "Crecimiento %": "{:+.2f}%"})
-                     .applymap(color_negative_red, subset=['Crecimiento %']), use_container_width=True)
+        # Filtrar datos
+        ventas_actual_ytd = df_raw[df_raw['Año'] == anio_actual]['Valor'].sum()
+        ventas_anterior_ytd = df_raw[(df_raw['Año'] == anio_anterior) & (df_raw['Fecha'] <= fecha_limite_anterior)]['Valor'].sum()
+        
+        # Variación
+        var_ytd = 0
+        if ventas_anterior_ytd > 0:
+            var_ytd = ((ventas_actual_ytd - ventas_anterior_ytd) / ventas_anterior_ytd) * 100
+            
+        ticket_prom = df_raw[df_raw['Año'] == anio_actual]['Valor'].mean()
+
+        # TARJETAS KPI
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric(f"Ventas {anio_actual} (YTD)", f"${ventas_actual_ytd:,.0f}", f"{var_ytd:+.1f}% vs año pasado")
+        k2.metric("Ticket Promedio", f"${ticket_prom:,.0f}")
+        k3.metric("Transacciones", f"{len(df_raw[df_raw['Año'] == anio_actual]):,}")
+        k4.metric("Día Más Fuerte", df_raw[df_raw['Año'] == anio_actual]['Dia'].mode()[0])
         
         st.markdown("---")
         
-        # --- B) COMPARATIVO MENSUAL ---
-        st.subheader("2. Evolución Mensual")
-        years = sorted(df_raw['Año'].unique().tolist(), reverse=True)
-        year_sel = st.selectbox("📅 Selecciona Año:", years)
+        # --- SECCIÓN B: ANÁLISIS POR DÍA DE LA SEMANA (NUEVO) ---
+        st.header("2. Patrones de Venta")
         
-        df_mensual = df_raw[df_raw['Año'] == year_sel].groupby('MesNum')['Valor'].sum().reset_index()
-        df_mensual['Mes'] = df_mensual['MesNum'].map(meses_es)
-        df_mensual['Variación %'] = df_mensual['Valor'].pct_change() * 100
+        c_dia, c_mes = st.columns(2)
         
-        # Gráfico Mensual (Variación - SEMÁFORO)
-        # Aquí graficamos la variación para ver barras verdes/rojas
-        # O graficamos ventas si prefieres. Hagamos ventas para consistencia, 
-        # y variación en tabla.
-        fig_mes = graficar_barras_pro(df_mensual, 'Mes', 'Valor', f'Ventas Mensuales {year_sel}', tipo_dato='dinero')
-        st.pyplot(fig_mes)
-        
-        # Tabla Mensual
-        st.dataframe(df_mensual[['Mes', 'Valor', 'Variación %']].style.format({"Valor": "${:,.0f}", "Variación %": "{:+.2f}%"})
-                     .applymap(color_negative_red, subset=['Variación %']), use_container_width=True)
+        with c_dia:
+            st.subheader("📅 Ventas por Día de Semana")
+            # Agrupar por día numérico para ordenar Lunes-Domingo
+            df_dias = df_raw[df_raw['Año'] == anio_actual].groupby(['DiaNum', 'Dia'])['Valor'].sum().reset_index()
+            # Graficar
+            fig_dias = graficar_barras_pro(df_dias, 'Dia', 'Valor', 'Acumulado por Día', '#9b59b6')
+            st.pyplot(fig_dias)
+            
+        with c_mes:
+            st.subheader(f"🗓️ Evolución Mensual {anio_actual}")
+            df_mes = df_raw[df_raw['Año'] == anio_actual].groupby('MesNum')['Valor'].sum().reset_index()
+            df_mes['Mes'] = df_mes['MesNum'].map(meses_es)
+            
+            # Tabla Estática (st.table muestra todo sin scroll)
+            st.dataframe(
+                df_mes[['Mes', 'Valor']].style.format({"Valor": "${:,.0f}"}),
+                use_container_width=True,
+                hide_index=True 
+            )
 
         st.markdown("---")
-        st.header("🏥 Análisis por Clínica (Smart View)")
-        st.info("Despliega para ver el detalle de cada sede.")
+        st.header("🏥 Radiografía por Clínica")
+        st.info("Despliega para ver el detalle individual.")
 
-        # --- C) BUCLE POR CLÍNICA ---
+        # --- SECCIÓN C: BUCLE POR CLÍNICA ---
         sucursales = sorted(df_raw['Sucursal'].unique())
         
         for suc in sucursales:
             with st.expander(f"📍 {suc}", expanded=False):
-                df_suc = df_raw[df_raw['Sucursal'] == suc]
+                df_suc = df_raw[(df_raw['Sucursal'] == suc) & (df_raw['Año'] == anio_actual)]
                 
-                col1, col2 = st.columns(2)
-                
-                # Columna 1: Anual
-                with col1:
-                    st.markdown("##### 📅 Anual")
-                    df_s_a = df_suc.groupby('Año')['Valor'].sum().reset_index()
-                    df_s_a['Var %'] = df_s_a['Valor'].pct_change() * 100
+                if not df_suc.empty:
+                    col_izq, col_der = st.columns(2)
                     
-                    # Gráfico mini (Solo si hay datos suficientes)
-                    if len(df_s_a) > 0:
-                        fig_sa = graficar_barras_pro(df_s_a, 'Año', 'Valor', '', tipo_dato='dinero')
-                        st.pyplot(fig_sa)
-                    
-                    st.dataframe(df_s_a.style.format({"Valor": "${:,.0f}", "Var %": "{:+.1f}%"})
-                                 .applymap(color_negative_red, subset=['Var %']), use_container_width=True)
-
-                # Columna 2: Mensual (Año seleccionado)
-                with col2:
-                    st.markdown(f"##### 🗓️ Mensual ({year_sel})")
-                    df_s_m = df_suc[df_suc['Año'] == year_sel].groupby('MesNum')['Valor'].sum().reset_index()
-                    
-                    if not df_s_m.empty:
-                        df_s_m['Mes'] = df_s_m['MesNum'].map(meses_es)
-                        df_s_m['Var %'] = df_s_m['Valor'].pct_change() * 100
+                    with col_izq:
+                        st.markdown("**Ventas por Día de Semana**")
+                        df_s_dia = df_suc.groupby(['DiaNum', 'Dia'])['Valor'].sum().reset_index()
+                        if not df_s_dia.empty:
+                            fig_sd = graficar_barras_pro(df_s_dia, 'Dia', 'Valor', '', '#e67e22')
+                            st.pyplot(fig_sd)
                         
-                        # Gráfico Semáforo de Variación (Opcional, aquí dejo ventas)
-                        fig_sm = graficar_barras_pro(df_s_m, 'Mes', 'Valor', '', tipo_dato='dinero')
-                        st.pyplot(fig_sm)
+                    with col_der:
+                        st.markdown("**Detalle Mensual**")
+                        df_s_mes = df_suc.groupby('MesNum')['Valor'].sum().reset_index()
+                        df_s_mes['Mes'] = df_s_mes['MesNum'].map(meses_es)
+                        df_s_mes['Var %'] = df_s_mes['Valor'].pct_change() * 100
                         
-                        st.dataframe(df_s_m[['Mes', 'Valor', 'Var %']].style.format({"Valor": "${:,.0f}", "Var %": "{:+.1f}%"})
-                                     .applymap(color_negative_red, subset=['Var %']), use_container_width=True)
-                    else:
-                        st.warning("Sin ventas este año.")
+                        # Tabla completa sin scroll (usamos dataframe pero configurado limpio)
+                        st.dataframe(
+                            df_s_mes[['Mes', 'Valor', 'Var %']].style
+                            .format({"Valor": "${:,.0f}", "Var %": "{:+.1f}%"})
+                            .applymap(color_negative_red, subset=['Var %']),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                else:
+                    st.warning("Sin datos este año.")
 
 # ==============================================================================
 # PÁGINA 3: MAPA
