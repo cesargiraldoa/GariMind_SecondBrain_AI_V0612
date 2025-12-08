@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🎨 CSS BLINDADO (ESTILO GARI RACING + SPINNER FIX)
+# 🎨 CSS BLINDADO (ESTILO GARI RACING + SPINNER NEÓN)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -108,35 +108,31 @@ st.markdown("""
             margin-bottom: 25px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
-        .ai-title {
-            color: #27ae60;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 1.1rem;
-            font-weight: bold;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .ai-content {
-            font-size: 0.95rem;
-            line-height: 1.6;
-            color: #e0e0e0;
-        }
-        .highlight {
-            color: #ffffff;
-            font-weight: bold;
-            background-color: rgba(39, 174, 96, 0.2);
-            padding: 2px 5px;
-            border-radius: 3px;
-        }
+        .ai-title { color: #27ae60; font-family: 'Orbitron', sans-serif; font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        .ai-content { font-size: 0.95rem; line-height: 1.6; color: #e0e0e0; }
+        .highlight { color: #ffffff; font-weight: bold; background-color: rgba(39, 174, 96, 0.2); padding: 2px 5px; border-radius: 3px; }
 
-        /* 11. SPINNER (CARGANDO) - COLOR AMARILLO NEÓN */
-        div[data-testid="stSpinner"] > div {
-            color: #fcd700 !important; /* Amarillo RB */
+        /* 11. MENSAJE DE CARGA (SPINNER) - CORRECCIÓN TOTAL */
+        div[data-testid="stSpinner"] {
+            text-align: center;
+            border: 1px solid #fcd700;
+            background: #000000;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        div[data-testid="stSpinner"] p {
+            color: #fcd700 !important; /* Amarillo Neón */
+            font-size: 1.2rem !important; /* Letra Grande */
+            font-weight: 900 !important; /* Super Negrita */
             font-family: 'Orbitron', sans-serif !important;
-            font-weight: bold !important;
-            font-size: 1.1rem !important;
+            text-transform: uppercase !important;
+            letter-spacing: 2px !important;
+            text-shadow: 0 0 10px #cc0000; /* Sombra Roja para contraste */
+        }
+        /* Círculo de carga */
+        div[data-testid="stSpinner"] > div > div {
+            border-top-color: #fcd700 !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -230,7 +226,7 @@ def generar_insights_telemetria(df_act, anio):
     """
 
 # --- CARGA DATOS (MODO SEGURO SQL) ---
-@st.cache_data(ttl=3600, show_spinner="🔌 Conectando Neuronas (SQL)...")
+@st.cache_data(ttl=3600, show_spinner="🔌 CONECTANDO NEURONAS (SQL)...")
 def cargar_datos_integrados():
     df_final = pd.DataFrame()
     try:
@@ -275,7 +271,10 @@ with st.sidebar:
     if st.button("CERRAR SESIÓN"): st.session_state.authenticated = False; st.rerun()
     st.markdown("---")
     
-    with st.spinner("Cargando..."): df_raw = cargar_datos_integrados()
+    # 🚨 CARGA DE DATOS 🚨
+    with st.spinner("🔌 CONECTANDO NEURONAS (SQL)..."): 
+        df_raw = cargar_datos_integrados()
+    
     if not df_raw.empty:
         link = generar_reporte_pmv_whatsapp(df_raw)
         st.markdown(f"""<a href="{link}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">📲 REPORTE WHATSAPP</button></a>""", unsafe_allow_html=True)
@@ -397,6 +396,6 @@ elif pagina == "🧠 Chat Gari IA":
     st.markdown("## 📻 RADIO CHECK"); p = st.text_input("Consultar Gari IA...")
     if st.button("COPY THAT") and api_key:
         txt, fig, tbl, _ = analizar_gpt(df_raw, p, api_key)
-        if txt: st.info(txt)
+        if txt: st.info(txt); 
         if tbl is not None: st.dataframe(tbl)
         if fig: st.pyplot(fig)
