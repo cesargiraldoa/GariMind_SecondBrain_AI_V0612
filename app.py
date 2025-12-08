@@ -4,10 +4,62 @@ import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import urllib.parse  # Librería para link de WhatsApp
+import urllib.parse
+import time
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
+
+# --- GESTIÓN DE SESIÓN Y LOGIN ---
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+def check_password():
+    """Retorna True si el usuario/clave son correctos."""
+    def login_form():
+        st.title("🔒 Acceso Seguro - Gari AI")
+        st.write("Por favor, inicie sesión para ver los datos de Dentisalud.")
+        
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            usuario = st.text_input("Usuario")
+            clave = st.text_input("Contraseña", type="password")
+            
+            if st.button("Ingresar 🔐"):
+                # --- AQUÍ CONFIGURAS TUS USUARIOS ---
+                usuarios_validos = {
+                    "gerente": "alivio2025",  # <--- CONTRASEÑA ACTUALIZADA
+                    "admin": "admin123",
+                    "gari": "hamster"
+                }
+                
+                if usuario in usuarios_validos and usuarios_validos[usuario] == clave:
+                    st.session_state.authenticated = True
+                    st.success("Acceso concedido. Cargando...")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Usuario o contraseña incorrectos.")
+
+    if not st.session_state.authenticated:
+        login_form()
+        return False
+    return True
+
+# --- SI NO ESTÁ AUTENTICADO, SE DETIENE AQUÍ ---
+if not check_password():
+    st.stop()
+
+# ==============================================================================
+# 🚀 COMIENZO DE LA APLICACIÓN (SOLO VISIBLE SI LOGIN OK)
+# ==============================================================================
+
+# --- LOGOUT EN SIDEBAR ---
+st.sidebar.markdown(f"👤 **Usuario:** Conectado")
+if st.sidebar.button("Cerrar Sesión 🔒"):
+    st.session_state.authenticated = False
+    st.rerun()
+st.sidebar.markdown("---")
 
 # --- HERRAMIENTAS Y DICCIONARIOS ---
 meses_es = {
@@ -42,17 +94,16 @@ def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db', form
     plt.tight_layout()
     return fig
 
-# --- NUEVO: FUNCIÓN REPORTE PMV COMPLETO ---
+# --- FUNCIÓN REPORTE PMV COMPLETO (WHATSAPP) ---
 def generar_reporte_pmv_whatsapp(df):
     try:
-        # 1. Filtrar solo el Año Actual
         if df.empty: return "https://wa.me/"
         anio_actual = df['Año'].max()
         df_act = df[df['Año'] == anio_actual]
         
         if df_act.empty: return "https://wa.me/"
 
-        # --- NIVEL 1: TOTAL COMPAÑÍA ---
+        # Nivel 1: Total
         v_total = df_act['Valor'].sum()
         tx_total = len(df_act)
         
@@ -63,36 +114,25 @@ def generar_reporte_pmv_whatsapp(df):
         mensaje += f"🧾 Tx: {tx_total:,.0f}\n"
         mensaje += "➖➖➖➖➖➖➖➖\n\n"
 
-        # --- NIVEL 2: TOTAL POR ZONA ---
+        # Nivel 2: Zonas
         mensaje += f"📍 *ACUMULADO POR ZONA*\n"
-        # Agrupamos por Zona y ordenamos de mayor a menor venta
         df_zonas = df_act.groupby('ZONA')['Valor'].sum().sort_values(ascending=False)
-        
         for zona, valor in df_zonas.items():
             mensaje += f"🔹 {zona}: ${valor:,.0f}\n"
-        
         mensaje += "➖➖➖➖➖➖➖➖\n\n"
 
-        # --- NIVEL 3: DETALLE POR CLÍNICA (AGRUPADO) ---
+        # Nivel 3: Detalle
         mensaje += f"🏥 *DETALLE POR CLÍNICA*\n"
-        
-        # Iteramos por cada Zona para mantener el orden
         for zona in df_zonas.index:
             mensaje += f"\n🔸 *{zona}*\n"
-            # Filtramos clínicas de esa zona y ordenamos por venta
             df_cli = df_act[df_act['ZONA'] == zona].groupby('Sucursal')['Valor'].sum().sort_values(ascending=False)
-            
             for sucursal, venta in df_cli.items():
                 mensaje += f"   • {sucursal}: ${venta:,.0f}\n"
 
         mensaje += "\n_Generado por Gari AI_ 🐹"
-
-        # Codificar URL
         mensaje_codificado = urllib.parse.quote(mensaje)
         return f"https://wa.me/?text={mensaje_codificado}"
-        
     except Exception as e:
-        print(f"Error WA: {e}")
         return "https://wa.me/"
 
 # --- CARGA DE DATOS ---
@@ -316,13 +356,12 @@ elif pagina == "🗺️ Mapa":
     except: st.error("Error SQL")
 
 # ==============================================================================
-# RENDERIZADO DEL BOTÓN WHATSAPP (PMV)
+# BOTÓN WHATSAPP (PMV)
 # ==============================================================================
 if not df_raw.empty:
     st.sidebar.markdown("---")
     st.sidebar.header("📲 Reporte Gerencial")
     
-    # Usamos df_raw para generar el reporte completo de la compañía, independiente de los filtros visuales
     link_wa = generar_reporte_pmv_whatsapp(df_raw)
     
     st.sidebar.markdown(f"""
