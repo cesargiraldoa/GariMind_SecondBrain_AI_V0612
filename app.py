@@ -4,22 +4,19 @@ import openai
 import io
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import numpy as np
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gari", page_icon="🐹", layout="wide")
 
-# --- HERRAMIENTAS DE TIEMPO ---
+# --- HERRAMIENTAS ---
 meses_es = {
     1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
     5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
     9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
 }
 
-dias_es = {
-    0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 
-    4: 'Viernes', 5: 'Sábado', 6: 'Domingo'
-}
+orden_dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+dias_es = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
 
 # --- ESTILOS CSS ---
 def color_negative_red(val):
@@ -27,29 +24,30 @@ def color_negative_red(val):
         return 'color: #ff4b4b; font-weight: bold'
     return 'color: black'
 
-# --- FUNCIÓN GRÁFICA MEJORADA (VERTICAL + LIMPIA) ---
-def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db'):
-    fig, ax = plt.subplots(figsize=(10, 5)) # Un poco más alto
+# --- FUNCIÓN GRÁFICA FLEXIBLE (DINERO O TRANSACCIONES) ---
+def graficar_barras_pro(df_g, x_col, y_col, titulo, color_barras='#3498db', formato='dinero'):
+    fig, ax = plt.subplots(figsize=(10, 5))
     
     # Barras
-    bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='none', alpha=0.85)
+    bars = ax.bar(df_g[x_col], df_g[y_col], color=color_barras, edgecolor='none', alpha=0.9)
     
-    # ETIQUETAS VERTICALES (SOLUCIÓN AL TRASLAPE)
-    # padding=5 las separa de la barra, rotation=90 las pone paradas
-    ax.bar_label(bars, fmt='${:,.0f}', padding=5, rotation=90, fontsize=9, fontweight='bold', color='#2c3e50')
+    # Etiquetas Verticales
+    fmt = '${:,.0f}' if formato == 'dinero' else '{:,.0f}'
+    ax.bar_label(bars, fmt=fmt, padding=3, rotation=90, fontsize=10, fontweight='bold', color='#2c3e50')
     
-    # Aumentar el techo del gráfico (margen superior) para que quepan los números
-    y_max = df_g[y_col].max()
-    ax.set_ylim(0, y_max * 1.35) # 35% más de espacio arriba
+    # Techo gráfico
+    if not df_g.empty:
+        y_max = df_g[y_col].max()
+        ax.set_ylim(0, y_max * 1.4)
     
-    # Limpieza visual
+    # Limpieza
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
     ax.get_yaxis().set_visible(False)
     
     ax.set_title(titulo, fontsize=13, fontweight='bold', color='#2c3e50', pad=20)
-    plt.xticks(rotation=0, fontsize=10) # Texto horizontal en eje X
+    plt.xticks(rotation=0, fontsize=10)
     plt.tight_layout()
     return fig
 
@@ -60,7 +58,6 @@ def cargar_datos_sql():
         conn = st.connection("sql", type="sql")
         df = conn.query("SELECT * FROM stg.Ingresos_Detallados", ttl=0)
         
-        # Limpieza
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
         df['Fecha'] = pd.to_datetime(df['Fecha'], dayfirst=True, errors='coerce')
         
@@ -70,6 +67,9 @@ def cargar_datos_sql():
         df['Mes'] = df['MesNum'].map(meses_es)
         df['DiaNum'] = df['Fecha'].dt.dayofweek
         df['Dia'] = df['DiaNum'].map(dias_es)
+        
+        # Columna Dummy para contar transacciones
+        df['Tx'] = 1 
         
         return df
     except Exception as e:
@@ -133,75 +133,97 @@ if pagina == "🧠 Chat con Gari":
             else: st.error("Falta API Key")
 
 # ==============================================================================
-# PÁGINA 2: REPORTES EJECUTIVOS BI (VERSION MAESTRA)
+# PÁGINA 2: REPORTES EJECUTIVOS BI (CON TRANSACCIONES)
 # ==============================================================================
 elif pagina == "📊 Reportes Ejecutivos BI":
     st.title("📊 Tablero de Comando Gerencial")
     
     if not df_raw.empty:
         
-        # --- SECCIÓN A: KPIS ESTRATÉGICOS (¿VAMOS GANANDO?) ---
+        # --- SELECTOR DE MÉTRICA PARA GRÁFICOS ---
+        col_t1, col_t2 = st.columns([2, 1])
+        with col_t2:
+            metrica_grafico = st.radio("📊 Ver Gráficos por:", ["Ventas ($)", "Transacciones (#)"], horizontal=True)
+            col_kpi = 'Valor' if metrica_grafico == "Ventas ($)" else 'Tx'
+            fmt_kpi = 'dinero' if metrica_grafico == "Ventas ($)" else 'numero'
+            color_kpi = '#3498db' if metrica_grafico == "Ventas ($)" else '#8e44ad' # Azul o Morado
+
+        # --- 1. PULSO DEL NEGOCIO (YTD) ---
         st.header("1. Pulso del Negocio (YTD)")
         
-        # Lógica de Comparación Año a la Fecha (YTD)
         anio_actual = df_raw['Año'].max()
         anio_anterior = anio_actual - 1
-        
-        # Fecha máxima de datos en el año actual (para cortar el año anterior igual)
         fecha_corte = df_raw[df_raw['Año'] == anio_actual]['Fecha'].max()
-        # Creamos una fecha límite para el año anterior (mismo día y mes)
         fecha_limite_anterior = fecha_corte.replace(year=anio_anterior)
         
-        # Filtrar datos
-        ventas_actual_ytd = df_raw[df_raw['Año'] == anio_actual]['Valor'].sum()
-        ventas_anterior_ytd = df_raw[(df_raw['Año'] == anio_anterior) & (df_raw['Fecha'] <= fecha_limite_anterior)]['Valor'].sum()
+        # Cálculos Dinero
+        v_act = df_raw[df_raw['Año'] == anio_actual]['Valor'].sum()
+        v_ant = df_raw[(df_raw['Año'] == anio_anterior) & (df_raw['Fecha'] <= fecha_limite_anterior)]['Valor'].sum()
+        var_v = ((v_act - v_ant) / v_ant) * 100 if v_ant > 0 else 0
         
-        # Variación
-        var_ytd = 0
-        if ventas_anterior_ytd > 0:
-            var_ytd = ((ventas_actual_ytd - ventas_anterior_ytd) / ventas_anterior_ytd) * 100
-            
-        ticket_prom = df_raw[df_raw['Año'] == anio_actual]['Valor'].mean()
+        # Cálculos Transacciones
+        tx_act = len(df_raw[df_raw['Año'] == anio_actual])
+        tx_ant = len(df_raw[(df_raw['Año'] == anio_anterior) & (df_raw['Fecha'] <= fecha_limite_anterior)])
+        var_tx = ((tx_act - tx_ant) / tx_ant) * 100 if tx_ant > 0 else 0
+        
+        # Ticket Promedio
+        tk = v_act / tx_act if tx_act > 0 else 0
 
-        # TARJETAS KPI
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric(f"Ventas {anio_actual} (YTD)", f"${ventas_actual_ytd:,.0f}", f"{var_ytd:+.1f}% vs año pasado")
-        k2.metric("Ticket Promedio", f"${ticket_prom:,.0f}")
-        k3.metric("Transacciones", f"{len(df_raw[df_raw['Año'] == anio_actual]):,}")
-        k4.metric("Día Más Fuerte", df_raw[df_raw['Año'] == anio_actual]['Dia'].mode()[0])
+        k1.metric(f"Ventas {anio_actual} (YTD)", f"${v_act:,.0f}", f"{var_v:+.1f}%")
+        k2.metric(f"Transacciones (YTD)", f"{tx_act:,}", f"{var_tx:+.1f}%") # Ahora tiene semáforo
+        k3.metric("Ticket Promedio", f"${tk:,.0f}")
+        
+        # Día más fuerte (según selección)
+        df_dias_kpi = df_raw[df_raw['Año'] == anio_actual].groupby('Dia')[col_kpi].sum()
+        mejor_dia = df_dias_kpi.idxmax()
+        val_dia = df_dias_kpi.max()
+        prefijo = "$" if fmt_kpi == 'dinero' else ""
+        k4.metric(f"Día Top ({metrica_grafico})", mejor_dia, f"{prefijo}{val_dia:,.0f}")
         
         st.markdown("---")
         
-        # --- SECCIÓN B: ANÁLISIS POR DÍA DE LA SEMANA (NUEVO) ---
-        st.header("2. Patrones de Venta")
+        # --- 2. ANÁLISIS GLOBAL ---
+        st.header(f"2. Análisis Global {anio_actual}")
         
-        c_dia, c_mes = st.columns(2)
+        # A) GRÁFICO MESES
+        st.subheader("A. Evolución Mensual")
+        df_mes = df_raw[df_raw['Año'] == anio_actual].groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
+        df_mes['Mes'] = df_mes['MesNum'].map(meses_es)
         
-        with c_dia:
-            st.subheader("📅 Ventas por Día de Semana")
-            # Agrupar por día numérico para ordenar Lunes-Domingo
-            df_dias = df_raw[df_raw['Año'] == anio_actual].groupby(['DiaNum', 'Dia'])['Valor'].sum().reset_index()
-            # Graficar
-            fig_dias = graficar_barras_pro(df_dias, 'Dia', 'Valor', 'Acumulado por Día', '#9b59b6')
-            st.pyplot(fig_dias)
-            
-        with c_mes:
-            st.subheader(f"🗓️ Evolución Mensual {anio_actual}")
-            df_mes = df_raw[df_raw['Año'] == anio_actual].groupby('MesNum')['Valor'].sum().reset_index()
-            df_mes['Mes'] = df_mes['MesNum'].map(meses_es)
-            
-            # Tabla Estática (st.table muestra todo sin scroll)
-            st.dataframe(
-                df_mes[['Mes', 'Valor']].style.format({"Valor": "${:,.0f}"}),
-                use_container_width=True,
-                hide_index=True 
-            )
+        fig_mes = graficar_barras_pro(df_mes, 'Mes', col_kpi, f'Evolución Mensual ({metrica_grafico})', color_kpi, fmt_kpi)
+        st.pyplot(fig_mes)
+        
+        # B) GRÁFICO DÍAS
+        st.subheader("B. Patrón Semanal")
+        df_dias = df_raw[df_raw['Año'] == anio_actual].groupby(['DiaNum', 'Dia']).agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
+        df_dias['Dia'] = pd.Categorical(df_dias['Dia'], categories=orden_dias, ordered=True)
+        df_dias = df_dias.sort_values('Dia')
+        
+        fig_dias = graficar_barras_pro(df_dias, 'Dia', col_kpi, f'Comportamiento Semanal ({metrica_grafico})', '#2ecc71', fmt_kpi)
+        st.pyplot(fig_dias)
+
+        # C) TABLA MAESTRA (DOBLE MÉTRICA)
+        st.subheader("C. Detalle Completo")
+        
+        # Variaciones
+        df_mes['Var $'] = df_mes['Valor'].pct_change() * 100
+        df_mes['Var Tx'] = df_mes['Tx'].pct_change() * 100
+        
+        st.table(
+            df_mes[['Mes', 'Valor', 'Var $', 'Tx', 'Var Tx']].style
+            .format({
+                "Valor": "${:,.0f}", "Var $": "{:+.1f}%", 
+                "Tx": "{:,.0f}", "Var Tx": "{:+.1f}%"
+            })
+            .applymap(color_negative_red, subset=['Var $', 'Var Tx'])
+        )
 
         st.markdown("---")
-        st.header("🏥 Radiografía por Clínica")
-        st.info("Despliega para ver el detalle individual.")
+        st.header("🏥 Análisis por Clínica")
+        st.info("Despliega para ver detalle. Los gráficos responden al selector superior.")
 
-        # --- SECCIÓN C: BUCLE POR CLÍNICA ---
+        # --- 3. POR CLÍNICA ---
         sucursales = sorted(df_raw['Sucursal'].unique())
         
         for suc in sucursales:
@@ -209,31 +231,36 @@ elif pagina == "📊 Reportes Ejecutivos BI":
                 df_suc = df_raw[(df_raw['Sucursal'] == suc) & (df_raw['Año'] == anio_actual)]
                 
                 if not df_suc.empty:
-                    col_izq, col_der = st.columns(2)
+                    c1, c2 = st.columns(2)
                     
-                    with col_izq:
-                        st.markdown("**Ventas por Día de Semana**")
-                        df_s_dia = df_suc.groupby(['DiaNum', 'Dia'])['Valor'].sum().reset_index()
-                        if not df_s_dia.empty:
-                            fig_sd = graficar_barras_pro(df_s_dia, 'Dia', 'Valor', '', '#e67e22')
-                            st.pyplot(fig_sd)
-                        
-                    with col_der:
-                        st.markdown("**Detalle Mensual**")
-                        df_s_mes = df_suc.groupby('MesNum')['Valor'].sum().reset_index()
+                    # Gráficos Dinámicos
+                    with c1:
+                        df_s_mes = df_suc.groupby('MesNum').agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
                         df_s_mes['Mes'] = df_s_mes['MesNum'].map(meses_es)
-                        df_s_mes['Var %'] = df_s_mes['Valor'].pct_change() * 100
+                        fig_sm = graficar_barras_pro(df_s_mes, 'Mes', col_kpi, 'Mensual', color_kpi, fmt_kpi)
+                        st.pyplot(fig_sm)
                         
-                        # Tabla completa sin scroll (usamos dataframe pero configurado limpio)
-                        st.dataframe(
-                            df_s_mes[['Mes', 'Valor', 'Var %']].style
-                            .format({"Valor": "${:,.0f}", "Var %": "{:+.1f}%"})
-                            .applymap(color_negative_red, subset=['Var %']),
-                            use_container_width=True,
-                            hide_index=True
-                        )
+                    with c2:
+                        df_s_dia = df_suc.groupby(['DiaNum', 'Dia']).agg({'Valor': 'sum', 'Tx': 'sum'}).reset_index()
+                        df_s_dia['Dia'] = pd.Categorical(df_s_dia['Dia'], categories=orden_dias, ordered=True)
+                        df_s_dia = df_s_dia.sort_values('Dia')
+                        fig_sd = graficar_barras_pro(df_s_dia, 'Dia', col_kpi, 'Semanal', '#2ecc71', fmt_kpi)
+                        st.pyplot(fig_sd)
+                    
+                    # Tabla Doble
+                    df_s_mes['Var $'] = df_s_mes['Valor'].pct_change() * 100
+                    df_s_mes['Var Tx'] = df_s_mes['Tx'].pct_change() * 100
+                    
+                    st.table(
+                        df_s_mes[['Mes', 'Valor', 'Var $', 'Tx', 'Var Tx']].style
+                        .format({
+                            "Valor": "${:,.0f}", "Var $": "{:+.1f}%", 
+                            "Tx": "{:,.0f}", "Var Tx": "{:+.1f}%"
+                        })
+                        .applymap(color_negative_red, subset=['Var $', 'Var Tx'])
+                    )
                 else:
-                    st.warning("Sin datos este año.")
+                    st.warning("Sin movimientos este año.")
 
 # ==============================================================================
 # PÁGINA 3: MAPA
