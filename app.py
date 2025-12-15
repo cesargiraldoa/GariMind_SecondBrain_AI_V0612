@@ -217,6 +217,10 @@ def generar_datos_ficticios_completos():
     df['DiaNum'] = df['Fecha'].dt.dayofweek
     df['Dia'] = df['DiaNum'].map(dias_es)
     df['Tx'] = 1
+    
+    # --- CORRECCIÓN CRÍTICA: AGREGAR Sucursal_Upper EN MOCK ---
+    df['Sucursal_Upper'] = df['Sucursal'].str.upper().str.strip()
+    
     return df
 
 # --- GENERADOR INSIGHTS TELEMETRÍA (PRO) ---
@@ -486,12 +490,20 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
     # 2. Cargar Datos Maestros (Para obtener Zona/Red) y Cruzar
     df_maestro = cargar_datos_maestros(usar_demo)
     
+    # --- SISTEMA DE SEGURIDAD (FIX ERROR DE MERGE) ---
+    if 'Sucursal_Upper' not in df_maestro.columns and 'Sucursal' in df_maestro.columns:
+        df_maestro['Sucursal_Upper'] = df_maestro['Sucursal'].astype(str).str.upper().str.strip()
+    
     if not df_eff_cso.empty and not df_maestro.empty:
         # Preparamos el cruce (Merge) usando el nombre de la sucursal normalizado
         df_eff_cso['Sucursal_Norm'] = df_eff_cso['Sucursal'].astype(str).str.strip().str.upper()
         
         # Extraemos solo las columnas maestras únicas (para evitar duplicados)
-        df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+        try:
+            df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+        except KeyError:
+             # Si aún falla, forzamos columnas por defecto para no romper la app
+             df_mapping = pd.DataFrame({'Sucursal_Upper': df_eff_cso['Sucursal_Norm'].unique(), 'ZONA': 'Sin Zona', 'RED': 'Sin Red'})
         
         # Hacemos el cruce (Left Join)
         df_full = df_eff_cso.merge(df_mapping, left_on='Sucursal_Norm', right_on='Sucursal_Upper', how='left')
@@ -625,16 +637,25 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
 # PÁGINA NUEVA 3: TELEMETRÍA DE TRÁFICO (PVS) - ¡LA QUE PEDISTE!
 # ==============================================================================
 elif pagina == "🚦 Telemetría de Tráfico (PVS)":
-    st.markdown("## 🚦 TELEMETRÍA DE TRÁFICO (PACIENTES NUEVOS)")
+    st.markdown("## 🚦 TELEMETRÍA DE TRÁFICO DE PACIENTES NUEVOS (PVS)")
     st.info("Gestión de Primeras Visitas (PVS) con Meta Dual: Días Valle (Lun-Jue) vs Días Pico (Vie-Sab).")
 
     # 1. Cargar y Cruzar Datos (Igual que arriba)
     df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
     df_maestro = cargar_datos_maestros(usar_demo)
+    
+    # --- SISTEMA DE SEGURIDAD (FIX ERROR DE MERGE) ---
+    if 'Sucursal_Upper' not in df_maestro.columns and 'Sucursal' in df_maestro.columns:
+        df_maestro['Sucursal_Upper'] = df_maestro['Sucursal'].astype(str).str.upper().str.strip()
 
     if not df_eff_cso.empty and not df_maestro.empty:
         df_eff_cso['Sucursal_Norm'] = df_eff_cso['Sucursal'].astype(str).str.strip().str.upper()
-        df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+        
+        try:
+            df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+        except KeyError:
+             df_mapping = pd.DataFrame({'Sucursal_Upper': df_eff_cso['Sucursal_Norm'].unique(), 'ZONA': 'Sin Zona', 'RED': 'Sin Red'})
+
         df_full = df_eff_cso.merge(df_mapping, left_on='Sucursal_Norm', right_on='Sucursal_Upper', how='left')
         df_full['ZONA'] = df_full['ZONA'].fillna('Sin Zona')
         df_full['RED'] = df_full['RED'].fillna('Sin Red')
@@ -686,7 +707,7 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
         
         with col_kpi:
             k1, k2 = st.columns(2)
-            k1.metric("TOTAL PACIENTES NUEVOS", f"{total_pvs:,.0f}", f"Meta Acumulada: {total_meta:,.0f}")
+            k1.metric("TOTAL PVS (Pacientes Nuevos)", f"{total_pvs:,.0f}", f"Meta Acumulada: {total_meta:,.0f}")
             k2.metric("CUMPLIMIENTO GLOBAL", f"{pct_cumplimiento:.1f}%", f"{gap:+,.0f} Pacientes (Saldo)")
 
         st.markdown("---")
@@ -719,7 +740,7 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
             st.pyplot(fig)
             
         with c_tab:
-            st.subheader("📋 Semáforo de Gestión (Saldo de Pacientes)")
+            st.subheader("📋 Semáforo de Gestión (Saldo de PVS)")
             
             # Agrupamos por Sucursal para ver el balance
             df_saldo = df_filtrado.groupby('Sucursal').agg({
