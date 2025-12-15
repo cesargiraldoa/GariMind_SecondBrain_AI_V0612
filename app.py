@@ -140,6 +140,15 @@ def color_negative_red(val):
         return 'color: #ffffff !important'
     except: return 'color: #ffffff !important'
 
+def color_cumplimiento(val):
+    try:
+        if isinstance(val, (int, float)):
+            if val >= 100: return 'color: #27ae60 !important; font-weight: bold' # Verde
+            if val >= 80: return 'color: #fcd700 !important; font-weight: bold'  # Amarillo
+            return 'color: #cc0000 !important; font-weight: bold' # Rojo
+        return 'color: #ffffff !important'
+    except: return 'color: #ffffff !important'
+
 # --- GESTIÓN DE SESIÓN ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 def check_password():
@@ -372,10 +381,11 @@ with st.sidebar:
         link = generar_reporte_pmv_whatsapp(df_raw)
         st.markdown(f"""<a href="{link}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">📲 REPORTE WHATSAPP</button></a>""", unsafe_allow_html=True)
     
-    # --- MENÚ PRINCIPAL ACTUALIZADO (NOMBRES NUEVOS) ---
+    # --- MENÚ PRINCIPAL ACTUALIZADO (NUEVA OPCIÓN DE TRÁFICO) ---
     pagina = st.radio("MENÚ PRINCIPAL", [
         "📊 Telemetría en Vivo", 
-        "🚀 Telemetría Resultados Superiores",  # <--- NOMBRE NUEVO
+        "🚀 Telemetría Resultados Superiores", 
+        "🚦 Telemetría de Tráfico (PVS)",  # <--- ¡NUEVA PESTAÑA!
         "🏢 Modelo Eficacia Total",
         "🔮 Estrategia & Predicción", 
         "🧠 Chat Gari IA"
@@ -464,7 +474,7 @@ if pagina == "📊 Telemetría en Vivo":
                 st.table(df_t[['Mes','Valor','Var','Tx']].style.format({'Valor':'${:,.0f}','Var':'{:.1f}%'}).applymap(color_negative_red, subset=['Var']))
 
 # ==============================================================================
-# PÁGINA NUEVA 1: TELEMETRÍA DE RESULTADOS SUPERIORES (MULTIDIMENSIONAL)
+# PÁGINA 2: TELEMETRÍA DE RESULTADOS SUPERIORES (MULTIDIMENSIONAL)
 # ==============================================================================
 elif pagina == "🚀 Telemetría Resultados Superiores":
     st.markdown("## 🚀 TELEMETRÍA DE RESULTADOS SUPERIORES")
@@ -513,8 +523,7 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
             red_avail = sorted(df_full['RED'].unique())
             sel_red = f3.multiselect("🏢 RED", red_avail)
 
-            # Filtro Meses (Nuevo!)
-            # Ordenamos por número de mes para que aparezcan en orden lógico (Ene, Feb...)
+            # Filtro Meses
             meses_unicos = df_full[['MesNum', 'Mes']].drop_duplicates().sort_values('MesNum')
             meses_avail = meses_unicos['Mes'].tolist()
             sel_mes = f4.multiselect("📆 MESES", meses_avail)
@@ -565,24 +574,17 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
 
         st.markdown("---")
 
-        # --- TABLA COMPARATIVA DETALLADA (NUEVO!) ---
+        # --- TABLA COMPARATIVA DETALLADA ---
         st.subheader("📋 Detalle Comparativo: Eficacia por Clínica y Mes")
         
-        # Agrupamos por Sucursal, Año y Mes para tener el desglose exacto
-        # Esto es vital: Sumamos primero ingresos y pacientes, LUEGO dividimos.
-        # Nunca promediamos promedios.
         df_tabla = df_filtrado.groupby(['Sucursal', 'Año', 'Mes']).agg({
             'Ingresos': 'sum', 
             'Primeras_Visitas': 'sum'
         }).reset_index()
         
-        # Calculamos Eficacia Real
         df_tabla['Eficacia'] = df_tabla['Ingresos'] / df_tabla['Primeras_Visitas']
-        
-        # Ordenamos
         df_tabla = df_tabla.sort_values(['Año', 'Mes', 'Eficacia'], ascending=[False, True, False])
         
-        # Mostramos con formato bonito
         st.dataframe(
             df_tabla.style.format({
                 'Ingresos': '${:,.0f}',
@@ -618,8 +620,134 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
             df_d['Eficacia'] = df_d['Ingresos'] / df_d['Primeras_Visitas']
             st.pyplot(graficar_barras_pro(df_d, 'Dia', 'Eficacia', 'Rentabilidad por Día de la Semana', color_barras='#e67e22'))
 
+
 # ==============================================================================
-# PÁGINA NUEVA 2: MODELO EFICACIA TOTAL (DASHBOARD ANALÍTICO)
+# PÁGINA NUEVA 3: TELEMETRÍA DE TRÁFICO (PVS) - ¡LA QUE PEDISTE!
+# ==============================================================================
+elif pagina == "🚦 Telemetría de Tráfico (PVS)":
+    st.markdown("## 🚦 TELEMETRÍA DE TRÁFICO (PACIENTES NUEVOS)")
+    st.info("Gestión de Primeras Visitas (PVS) con Meta Dual: Días Valle (Lun-Jue) vs Días Pico (Vie-Sab).")
+
+    # 1. Cargar y Cruzar Datos (Igual que arriba)
+    df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
+    df_maestro = cargar_datos_maestros(usar_demo)
+
+    if not df_eff_cso.empty and not df_maestro.empty:
+        df_eff_cso['Sucursal_Norm'] = df_eff_cso['Sucursal'].astype(str).str.strip().str.upper()
+        df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+        df_full = df_eff_cso.merge(df_mapping, left_on='Sucursal_Norm', right_on='Sucursal_Upper', how='left')
+        df_full['ZONA'] = df_full['ZONA'].fillna('Sin Zona')
+        df_full['RED'] = df_full['RED'].fillna('Sin Red')
+        df_full['Año'] = df_full['Fecha'].dt.year
+        df_full['MesNum'] = df_full['Fecha'].dt.month
+        df_full['Mes'] = df_full['MesNum'].map(meses_es)
+        df_full['DiaNum'] = df_full['Fecha'].dt.dayofweek
+        df_full['Dia'] = df_full['DiaNum'].map(dias_es)
+
+        # 2. Filtros
+        with st.expander("🔎 FILTROS (Igual que en Eficacia)", expanded=True):
+            f1, f2, f3, f4 = st.columns(4)
+            sel_years = f1.multiselect("📅 AÑOS", sorted(df_full['Año'].unique(), reverse=True))
+            sel_zona = f2.multiselect("📍 ZONA", sorted(df_full['ZONA'].unique()))
+            sel_red = f3.multiselect("🏢 RED", sorted(df_full['RED'].unique()))
+            sel_mes = f4.multiselect("📆 MESES", df_full[['MesNum', 'Mes']].drop_duplicates().sort_values('MesNum')['Mes'].tolist())
+        
+        df_filtrado = df_full.copy()
+        if sel_years: df_filtrado = df_filtrado[df_filtrado['Año'].isin(sel_years)]
+        if sel_zona: df_filtrado = df_filtrado[df_filtrado['ZONA'].isin(sel_zona)]
+        if sel_red: df_filtrado = df_filtrado[df_filtrado['RED'].isin(sel_red)]
+        if sel_mes: df_filtrado = df_filtrado[df_filtrado['Mes'].isin(sel_mes)]
+        
+        if df_filtrado.empty: st.warning("Sin datos."); st.stop()
+
+        st.markdown("---")
+
+        # 3. CONTROL DE META DUAL
+        st.subheader("🎯 Configuración de Meta Dual (Diaria)")
+        col_meta1, col_meta2, col_kpi = st.columns([1, 1, 2])
+        
+        with col_meta1:
+            meta_semana = st.number_input("Meta Lunes a Jueves (PVS/Día):", min_value=1, value=15)
+        with col_meta2:
+            meta_finde = st.number_input("Meta Viernes y Sábados (PVS/Día):", min_value=1, value=25)
+            
+        # 4. CÁLCULO DE CUMPLIMIENTO (DÍA A DÍA)
+        # Asignamos la meta teórica a cada fila según el día de la semana
+        # 0=Lunes, 3=Jueves -> Meta Semana. 4=Viernes, 5=Sabado, 6=Domingo -> Meta Finde
+        df_filtrado['Meta_Dia'] = np.where(df_filtrado['DiaNum'] <= 3, meta_semana, meta_finde)
+        df_filtrado['Delta_PVS'] = df_filtrado['Primeras_Visitas'] - df_filtrado['Meta_Dia']
+        df_filtrado['Cumple_Dia'] = df_filtrado['Primeras_Visitas'] >= df_filtrado['Meta_Dia']
+
+        # KPI Resumen
+        total_pvs = df_filtrado['Primeras_Visitas'].sum()
+        total_meta = df_filtrado['Meta_Dia'].sum()
+        gap = total_pvs - total_meta
+        pct_cumplimiento = (total_pvs / total_meta) * 100 if total_meta > 0 else 0
+        
+        with col_kpi:
+            k1, k2 = st.columns(2)
+            k1.metric("TOTAL PACIENTES NUEVOS", f"{total_pvs:,.0f}", f"Meta Acumulada: {total_meta:,.0f}")
+            k2.metric("CUMPLIMIENTO GLOBAL", f"{pct_cumplimiento:.1f}%", f"{gap:+,.0f} Pacientes (Saldo)")
+
+        st.markdown("---")
+
+        # 5. GRÁFICOS Y TABLAS
+        c_graf, c_tab = st.columns([1, 1])
+        
+        with c_graf:
+            st.subheader("📊 Cumplimiento por Día de la Semana")
+            # Agrupamos por día para ver promedios
+            df_dia = df_filtrado.groupby(['DiaNum', 'Dia']).agg({
+                'Primeras_Visitas': 'mean',
+                'Meta_Dia': 'mean'
+            }).reset_index().sort_values('DiaNum')
+            
+            # Graficamos Barras (Real) y Línea (Meta)
+            fig, ax = plt.subplots(figsize=(8, 5))
+            fig.patch.set_facecolor('#0E1117'); ax.set_facecolor('#0E1117')
+            
+            # Barras Reales
+            ax.bar(df_dia['Dia'], df_dia['Primeras_Visitas'], color='#3498db', label='Promedio Real', alpha=0.7)
+            
+            # Línea de Meta Promedio
+            ax.plot(df_dia['Dia'], df_dia['Meta_Dia'], color='#fcd700', marker='o', linestyle='--', linewidth=2, label='Meta Objetiva')
+            
+            ax.set_title("Tráfico Promedio vs Meta por Día", color='white')
+            ax.tick_params(colors='white'); ax.legend(facecolor='#151925', labelcolor='white')
+            ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_color('white'); ax.spines['left'].set_color('white')
+            st.pyplot(fig)
+            
+        with c_tab:
+            st.subheader("📋 Semáforo de Gestión (Saldo de Pacientes)")
+            
+            # Agrupamos por Sucursal para ver el balance
+            df_saldo = df_filtrado.groupby('Sucursal').agg({
+                'Primeras_Visitas': 'sum',
+                'Meta_Dia': 'sum'
+            }).reset_index()
+            
+            df_saldo['Saldo_Pacientes'] = df_saldo['Primeras_Visitas'] - df_saldo['Meta_Dia']
+            df_saldo['% Cumplimiento'] = (df_saldo['Primeras_Visitas'] / df_saldo['Meta_Dia']) * 100
+            
+            # Ordenamos por quien debe más pacientes
+            df_saldo = df_saldo.sort_values('% Cumplimiento', ascending=True)
+            
+            st.dataframe(
+                df_saldo.style.format({
+                    'Primeras_Visitas': '{:,.0f}',
+                    'Meta_Dia': '{:,.0f}',
+                    'Saldo_Pacientes': '{:+,.0f}',
+                    '% Cumplimiento': '{:.1f}%'
+                }).applymap(color_negative_red, subset=['Saldo_Pacientes'])
+                  .applymap(color_cumplimiento, subset=['% Cumplimiento']),
+                use_container_width=True,
+                height=400
+            )
+
+
+# ==============================================================================
+# PÁGINA 4: MODELO EFICACIA TOTAL (DASHBOARD ANALÍTICO)
 # ==============================================================================
 elif pagina == "🏢 Modelo Eficacia Total":
     st.markdown("## 🏢 MODELO DE EFICACIA INTEGRAL")
