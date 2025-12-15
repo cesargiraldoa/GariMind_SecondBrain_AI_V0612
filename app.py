@@ -131,7 +131,7 @@ def generar_datos_ia_demo_rapido():
     vals = np.linspace(1000000, 2500000, len(fechas)) + np.random.normal(0, 100000, len(fechas))
     return pd.DataFrame({'Fecha': fechas, 'Valor': vals, 'Año': fechas.year})
 
-# --- CARGAS DE DATOS ---
+# --- CARGAS DE DATOS BLINDADAS (Anti-KeyError) ---
 @st.cache_data(show_spinner=False)
 def cargar_datos_eficacia(modo_demo):
     if modo_demo:
@@ -139,7 +139,7 @@ def cargar_datos_eficacia(modo_demo):
         df_e_glob = pd.DataFrame({'Fecha': fechas, 'Ingresos': np.random.randint(20000000, 50000000, size=len(fechas)), 'Primeras_Visitas': np.random.randint(500, 1500, size=len(fechas))})
         clinicas = ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'SALITRE', 'UNICENTRO', 'POBLADO']
         data_cso = []
-        for f in fechas[-60:]: # Solo últimos 60 días en demo para velocidad
+        for f in fechas[-60:]: # Solo últimos 60 días en demo
             for c in clinicas:
                 data_cso.append([c, f, np.random.randint(500000, 3000000), np.random.randint(5, 50)])
         df_e_cso = pd.DataFrame(data_cso, columns=['Sucursal', 'Fecha', 'Ingresos', 'Primeras_Visitas'])
@@ -150,11 +150,17 @@ def cargar_datos_eficacia(modo_demo):
             try: df_e_glob = conn.query("SELECT * FROM dm.Eficacia_Propia", ttl=3600)
             except: df_e_glob = conn.query("SELECT * FROM dbo.dm_Eficacia_Propia", ttl=3600)
             df_e_glob['Fecha'] = pd.to_datetime(df_e_glob['Fecha'])
+            
             try: df_e_cso = conn.query("SELECT * FROM dm.Efiacia_CSO", ttl=3600)
             except: df_e_cso = conn.query("SELECT * FROM dm_Efiacia_CSO", ttl=3600)
             df_e_cso['Fecha'] = pd.to_datetime(df_e_cso['Fecha'])
             return df_e_glob, df_e_cso
-        except: return pd.DataFrame(), pd.DataFrame()
+        except Exception as e:
+            st.error(f"⚠️ Error SQL: {e}")
+            # Retornar vacíos pero con columnas para EVITAR KEYERROR
+            cols_g = ['Fecha', 'Ingresos', 'Primeras_Visitas']
+            cols_c = ['Sucursal', 'Fecha', 'Ingresos', 'Primeras_Visitas']
+            return pd.DataFrame(columns=cols_g), pd.DataFrame(columns=cols_c)
 
 def cargar_datos_maestros(modo_demo):
     if modo_demo: return generar_datos_ficticios_completos()
@@ -290,6 +296,10 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
     df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
     df_maestro = cargar_datos_maestros(usar_demo)
     
+    # ⚠️ SEGURIDAD: SI NO HAY DATOS, PARAR (EVITA KEYERROR)
+    if df_eff_cso.empty or 'Fecha' not in df_eff_cso.columns:
+        st.error("⚠️ No hay datos cargados en Eficacia. Verifica la conexión SQL."); st.stop()
+
     # 1. FILTRO DE MEMORIA: PRIMERO FILTRAR FECHAS
     with st.expander("🔎 FILTROS Y RANGO DE TIEMPO (ZOOM)", expanded=True):
         f_rango, f1, f2 = st.columns([2, 1, 1])
@@ -297,14 +307,17 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
         def_start = max_d - datetime.timedelta(days=90)
         rango = f_rango.date_input("📅 Rango de Fechas", [def_start, max_d], min_value=min_d, max_value=max_d)
     
-    # Aplicar filtro de fecha INMEDIATAMENTE para liberar memoria
+    # Aplicar filtro de fecha INMEDIATAMENTE
     if isinstance(rango, tuple) and len(rango) == 2:
         df_eff_cso = df_eff_cso[(df_eff_cso['Fecha'].dt.date >= rango[0]) & (df_eff_cso['Fecha'].dt.date <= rango[1])]
     
     # 2. CRUCE DE DATOS
     if 'Sucursal_Upper' not in df_maestro.columns: df_maestro['Sucursal_Upper'] = df_maestro['Sucursal'].astype(str).str.upper().str.strip()
     df_eff_cso['Sucursal_Norm'] = df_eff_cso['Sucursal'].astype(str).str.strip().str.upper()
-    df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+    
+    try: df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+    except: df_mapping = pd.DataFrame({'Sucursal_Upper': df_eff_cso['Sucursal_Norm'].unique(), 'ZONA': 'Sin Zona', 'RED': 'Sin Red'})
+        
     df_full = df_eff_cso.merge(df_mapping, left_on='Sucursal_Norm', right_on='Sucursal_Upper', how='left')
     df_full['ZONA'] = df_full['ZONA'].fillna('Sin Zona'); df_full['RED'] = df_full['RED'].fillna('Sin Red')
     df_full['DiaNum'] = df_full['Fecha'].dt.dayofweek; df_full['Dia'] = df_full['DiaNum'].map(dias_es)
