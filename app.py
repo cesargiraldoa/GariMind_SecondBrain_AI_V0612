@@ -151,8 +151,12 @@ def cargar_datos_eficacia(modo_demo):
             except: df_e_glob = conn.query("SELECT * FROM dbo.dm_Eficacia_Propia", ttl=3600)
             df_e_glob['Fecha'] = pd.to_datetime(df_e_glob['Fecha'])
             
-            try: df_e_cso = conn.query("SELECT * FROM dm.Efiacia_CSO", ttl=3600)
-            except: df_e_cso = conn.query("SELECT * FROM dm_Efiacia_CSO", ttl=3600)
+            # --- CORRECCIÓN ORTOGRÁFICA AQUÍ ---
+            # Antes: dm.Efiacia_CSO -> Ahora: dm.Eficacia_CSO
+            try: df_e_cso = conn.query("SELECT * FROM dm.Eficacia_CSO", ttl=3600)
+            except: df_e_cso = conn.query("SELECT * FROM dm_Eficacia_CSO", ttl=3600)
+            # -----------------------------------
+
             df_e_cso['Fecha'] = pd.to_datetime(df_e_cso['Fecha'])
             return df_e_glob, df_e_cso
         except Exception as e:
