@@ -10,7 +10,7 @@ import calendar
 import numpy as np
 import random
 
-# Nota: OpenAI se importa solo bajo demanda (Pestaña 3) para no frenar el arranque.
+# Nota: OpenAI se importa solo bajo demanda (Pestaña Chat) para no frenar el arranque.
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -249,7 +249,56 @@ def generar_datos_ia_demo_rapido():
     vals = np.linspace(1000000, 2500000, n) + np.where(fechas.dayofweek >= 4, 500000, 0) + np.random.normal(0, 100000, n)
     return pd.DataFrame({'Fecha': fechas, 'Valor': vals, 'Año': fechas.year, 'MesNum': fechas.month})
 
-# --- CARGA DATOS (SELECTOR DE FUENTE) ---
+# --- CARGA DATOS EFICACIA (NUEVO) ---
+@st.cache_data(show_spinner=False)
+def cargar_datos_eficacia(modo_demo):
+    if modo_demo:
+        # Generador de datos simulados para Eficacia (Modo Demo)
+        fechas = pd.date_range(start="2022-01-01", end=datetime.date.today(), freq="D")
+        
+        # 1. Simulación Global
+        df_e_glob = pd.DataFrame({'Fecha': fechas})
+        df_e_glob['Ingresos'] = np.random.randint(20000000, 50000000, size=len(fechas))
+        df_e_glob['Primeras_Visitas'] = np.random.randint(500, 1500, size=len(fechas))
+        df_e_glob['Eficacia'] = df_e_glob['Ingresos'] / df_e_glob['Primeras_Visitas']
+        
+        # 2. Simulación por Sucursal (CSO)
+        clinicas = ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'SALITRE', 'UNICENTRO', 'POBLADO']
+        data_cso = []
+        for f in fechas[-30:]: # Solo últimos 30 días para demo ligero
+            for c in clinicas:
+                ing = np.random.randint(500000, 3000000)
+                pv = np.random.randint(5, 50)
+                data_cso.append([c, f, ing, pv, ing/pv if pv > 0 else 0])
+        df_e_cso = pd.DataFrame(data_cso, columns=['Sucursal', 'Fecha', 'Ingresos', 'Primeras_Visitas', 'Eficacia'])
+        
+        return df_e_glob, df_e_cso
+
+    else:
+        # Conexión SQL Real
+        try:
+            conn = st.connection("sql", type="sql")
+            
+            # Tabla 1: Global Propia
+            df_e_glob = conn.query("SELECT * FROM dm_Eficacia_Propia", ttl=3600)
+            df_e_glob['Fecha'] = pd.to_datetime(df_e_glob['Fecha'])
+            
+            # Tabla 2: Detalle CSO (Intentamos ambos nombres por el typo reportado)
+            try:
+                df_e_cso = conn.query("SELECT * FROM dm.Efiacia_CSO", ttl=3600)
+            except:
+                # Fallback por si lo corrigieron
+                df_e_cso = conn.query("SELECT * FROM dm.Eficacia_CSO", ttl=3600) 
+            
+            df_e_cso['Fecha'] = pd.to_datetime(df_e_cso['Fecha'])
+            
+            return df_e_glob, df_e_cso
+            
+        except Exception as e:
+            st.error(f"Error cargando Eficacia SQL: {e}")
+            return pd.DataFrame(), pd.DataFrame()
+
+# --- CARGA DATOS MAESTROS (SELECTOR DE FUENTE) ---
 def cargar_datos_maestros(modo_demo):
     if modo_demo:
         return generar_datos_ficticios_completos()
@@ -307,7 +356,15 @@ with st.sidebar:
         link = generar_reporte_pmv_whatsapp(df_raw)
         st.markdown(f"""<a href="{link}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">📲 REPORTE WHATSAPP</button></a>""", unsafe_allow_html=True)
     
-    pagina = st.radio("MENÚ PRINCIPAL", ["📊 Telemetría en Vivo", "🔮 Estrategia & Predicción", "🧠 Chat Gari IA"])
+    # --- MENÚ PRINCIPAL ACTUALIZADO ---
+    pagina = st.radio("MENÚ PRINCIPAL", [
+        "📊 Telemetría en Vivo", 
+        "🎯 Eficacia (Simulador)",       # <--- NUEVA PÁGINA 1
+        "🏢 Modelo Eficacia Total",      # <--- NUEVA PÁGINA 2
+        "🔮 Estrategia & Predicción", 
+        "🧠 Chat Gari IA"
+    ])
+    
     if "OPENAI_API_KEY" in st.secrets: api_key = st.secrets["OPENAI_API_KEY"]
     else: api_key = st.text_input("🔑 API KEY:", type="password")
 
@@ -389,6 +446,124 @@ if pagina == "📊 Telemetría en Vivo":
                 df_t = d_s.groupby('MesNum').agg({'Valor':'sum','Tx':'sum'}).reset_index().assign(Mes=lambda x:x['MesNum'].map(meses_es))
                 df_t['Var'] = df_t['Valor'].pct_change()*100
                 st.table(df_t[['Mes','Valor','Var','Tx']].style.format({'Valor':'${:,.0f}','Var':'{:.1f}%'}).applymap(color_negative_red, subset=['Var']))
+
+# ==============================================================================
+# PÁGINA NUEVA 1: EFICACIA (SIMULADOR DE META)
+# ==============================================================================
+elif pagina == "🎯 Eficacia (Simulador)":
+    st.markdown("## 🎯 GESTIÓN DE METAS (SEMÁFORO)")
+    st.info("Ajusta la meta para evaluar qué clínicas (CSO) están cumpliendo el objetivo de rentabilidad por paciente.")
+    
+    # Cargar datos
+    df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
+    
+    if not df_eff_cso.empty:
+        # --- CAJA DE CONTROL DE META ---
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.markdown("### 🏁 OBJETIVO")
+            meta_usuario = st.number_input(
+                "Meta de Eficacia ($/Paciente):", 
+                min_value=0, value=1000000, step=50000, format="%d"
+            )
+        with c2:
+            st.warning(f"Estás evaluando quién genera más de **${meta_usuario:,.0f}** por cada paciente nuevo.")
+
+        st.markdown("---")
+
+        # --- CÁLCULO Y GRÁFICO SEMÁFORO ---
+        ranking = df_eff_cso.groupby('Sucursal').agg({'Ingresos': 'sum', 'Primeras_Visitas': 'sum'}).reset_index()
+        ranking['Eficacia_Real'] = ranking['Ingresos'] / ranking['Primeras_Visitas']
+        ranking['Cumple'] = ranking['Eficacia_Real'] >= meta_usuario
+        ranking = ranking.sort_values('Eficacia_Real', ascending=False)
+        
+        # Gráfico
+        fig, ax = plt.subplots(figsize=(12, 6))
+        fig.patch.set_facecolor('#0E1117'); ax.set_facecolor('#0E1117')
+        
+        colores = ['#27ae60' if x else '#cc0000' for x in ranking['Cumple']] # Verde/Rojo
+        barras = ax.bar(ranking['Sucursal'], ranking['Eficacia_Real'], color=colores, alpha=0.9)
+        
+        ax.axhline(y=meta_usuario, color='#fcd700', linestyle='--', linewidth=2, label='Meta')
+        ax.set_title(f"Clínicas vs Meta (${meta_usuario:,.0f})", color='white', fontsize=14)
+        ax.bar_label(barras, fmt='${:,.0f}', padding=3, rotation=90, color='white', fontsize=8)
+        ax.tick_params(colors='white', axis='x', rotation=90); ax.tick_params(colors='white', axis='y')
+        ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False); ax.spines['bottom'].set_color('white'); ax.spines['left'].set_color('white')
+        
+        st.pyplot(fig)
+        
+        # Contador de resumen
+        cumplen = ranking['Cumple'].sum()
+        no_cumplen = len(ranking) - cumplen
+        st.caption(f"📊 RESUMEN: {cumplen} clínicas en VERDE | {no_cumplen} clínicas en ROJO")
+
+# ==============================================================================
+# PÁGINA NUEVA 2: MODELO EFICACIA TOTAL (DASHBOARD ANALÍTICO)
+# ==============================================================================
+elif pagina == "🏢 Modelo Eficacia Total":
+    st.markdown("## 🏢 MODELO DE EFICACIA INTEGRAL")
+    st.markdown("Análisis macro de la compañía y detalle por CSO.")
+    
+    df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
+    
+    if not df_eff_glob.empty:
+        # --- 1. KPIs GLOBALES DE COMPAÑÍA ---
+        ingreso_tot = df_eff_glob['Ingresos'].sum()
+        pacientes_tot = df_eff_glob['Primeras_Visitas'].sum()
+        eficacia_pais = ingreso_tot / pacientes_tot if pacientes_tot > 0 else 0
+        
+        k1, k2, k3 = st.columns(3)
+        k1.metric("EFICACIA PAÍS (PROM)", f"${eficacia_pais:,.0f}", help="Promedio ponderado de todas las clínicas")
+        k2.metric("TOTAL INGRESOS", f"${ingreso_tot/1e6:,.1f} M")
+        k3.metric("PACIENTES NUEVOS", f"{pacientes_tot:,.0f}")
+        
+        st.markdown("---")
+        
+        # --- 2. TENDENCIA HISTÓRICA (El gráfico de líneas) ---
+        st.subheader("📈 Evolución Temporal: ¿Estamos mejorando?")
+        
+        fig, ax1 = plt.subplots(figsize=(12, 4))
+        fig.patch.set_facecolor('#0E1117'); ax1.set_facecolor('#0E1117')
+        
+        # Eje Izquierdo: Dinero
+        ax1.plot(df_eff_glob['Fecha'], df_eff_glob['Ingresos'], color='#27ae60', linewidth=2, label='Ingresos')
+        ax1.set_ylabel('Ingresos ($)', color='#27ae60', fontweight='bold')
+        ax1.tick_params(axis='y', labelcolor='#27ae60', colors='white')
+        ax1.tick_params(axis='x', colors='white')
+        
+        # Eje Derecho: Pacientes
+        ax2 = ax1.twinx()
+        ax2.plot(df_eff_glob['Fecha'], df_eff_glob['Primeras_Visitas'], color='#fcd700', linestyle='--', label='Pacientes')
+        ax2.set_ylabel('Pacientes Nuevos (#)', color='#fcd700', fontweight='bold')
+        ax2.tick_params(axis='y', labelcolor='#fcd700', colors='white')
+        ax2.spines['bottom'].set_color('white'); ax2.spines['top'].set_visible(False)
+        
+        plt.title("Correlación: Ingresos vs Tráfico de Pacientes", color='white')
+        st.pyplot(fig)
+        
+    if not df_eff_cso.empty:
+        st.markdown("---")
+        # --- 3. TABLA MAESTRA DETALLADA (DATA POR CSO) ---
+        st.subheader("📋 Detalle Operativo por CSO")
+        
+        tabla_cso = df_eff_cso.groupby('Sucursal').agg({
+            'Ingresos': 'sum', 
+            'Primeras_Visitas': 'sum'
+        }).reset_index()
+        
+        tabla_cso['Eficacia_Real'] = tabla_cso['Ingresos'] / tabla_cso['Primeras_Visitas']
+        tabla_cso = tabla_cso.sort_values('Eficacia_Real', ascending=False)
+        
+        # Mostramos la tabla limpia y formateada
+        st.dataframe(
+            tabla_cso.style.format({
+                'Ingresos': '${:,.0f}', 
+                'Primeras_Visitas': '{:,.0f}', 
+                'Eficacia_Real': '${:,.0f}'
+            }).background_gradient(subset=['Eficacia_Real'], cmap='Greens'),
+            use_container_width=True,
+            height=400
+        )
 
 elif pagina == "🔮 Estrategia & Predicción":
     st.markdown("## 🔮 SIMULACIÓN DE ESTRATEGIA (IA)")
