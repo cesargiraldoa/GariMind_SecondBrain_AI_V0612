@@ -249,7 +249,7 @@ def generar_datos_ia_demo_rapido():
     vals = np.linspace(1000000, 2500000, n) + np.where(fechas.dayofweek >= 4, 500000, 0) + np.random.normal(0, 100000, n)
     return pd.DataFrame({'Fecha': fechas, 'Valor': vals, 'Año': fechas.year, 'MesNum': fechas.month})
 
-# --- CARGA DATOS EFICACIA (NUEVO) ---
+# --- CARGA DATOS EFICACIA (CORREGIDO Y BLINDADO) ---
 @st.cache_data(show_spinner=False)
 def cargar_datos_eficacia(modo_demo):
     if modo_demo:
@@ -265,7 +265,7 @@ def cargar_datos_eficacia(modo_demo):
         # 2. Simulación por Sucursal (CSO)
         clinicas = ['COLSUBSIDIO', 'CHAPINERO', 'TUNAL', 'SOACHA', 'SALITRE', 'UNICENTRO', 'POBLADO']
         data_cso = []
-        for f in fechas[-30:]: # Solo últimos 30 días para demo ligero
+        for f in fechas[-30:]: 
             for c in clinicas:
                 ing = np.random.randint(500000, 3000000)
                 pv = np.random.randint(5, 50)
@@ -275,27 +275,43 @@ def cargar_datos_eficacia(modo_demo):
         return df_e_glob, df_e_cso
 
     else:
-        # Conexión SQL Real
+        # Conexión SQL Real (Intentos Múltiples de Nombre)
         try:
             conn = st.connection("sql", type="sql")
             
-            # Tabla 1: Global Propia
-            df_e_glob = conn.query("SELECT * FROM dm_Eficacia_Propia", ttl=3600)
+            # --- INTENTO TABLA 1 (GLOBAL) ---
+            try:
+                # Opción A: Probamos con esquema 'dm.' (Lo más probable)
+                df_e_glob = conn.query("SELECT * FROM dm.Eficacia_Propia", ttl=3600)
+            except:
+                try:
+                    # Opción B: Probamos con esquema 'dbo.' y nombre compuesto
+                    df_e_glob = conn.query("SELECT * FROM dbo.dm_Eficacia_Propia", ttl=3600)
+                except:
+                    # Opción C: Nombre directo (último recurso)
+                    df_e_glob = conn.query("SELECT * FROM dm_Eficacia_Propia", ttl=3600)
+
             df_e_glob['Fecha'] = pd.to_datetime(df_e_glob['Fecha'])
             
-            # Tabla 2: Detalle CSO (Intentamos ambos nombres por el typo reportado)
+            # --- INTENTO TABLA 2 (DETALLE CSO) ---
+            # Nota: El usuario reportó un posible typo 'Efiacia' en la base de datos
             try:
                 df_e_cso = conn.query("SELECT * FROM dm.Efiacia_CSO", ttl=3600)
             except:
-                # Fallback por si lo corrigieron
-                df_e_cso = conn.query("SELECT * FROM dm.Eficacia_CSO", ttl=3600) 
-            
+                try:
+                    # Si falló, intentamos corregir el typo a 'Eficacia'
+                    df_e_cso = conn.query("SELECT * FROM dm.Eficacia_CSO", ttl=3600)
+                except:
+                    # Si falla, intentamos sin esquema
+                    df_e_cso = conn.query("SELECT * FROM dm_Efiacia_CSO", ttl=3600)
+
             df_e_cso['Fecha'] = pd.to_datetime(df_e_cso['Fecha'])
             
             return df_e_glob, df_e_cso
             
         except Exception as e:
-            st.error(f"Error cargando Eficacia SQL: {e}")
+            # Si todo falla, mostramos el error pero no rompemos la app (retorna vacío)
+            st.error(f"Error Crítico SQL: {e}")
             return pd.DataFrame(), pd.DataFrame()
 
 # --- CARGA DATOS MAESTROS (SELECTOR DE FUENTE) ---
