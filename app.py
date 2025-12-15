@@ -631,17 +631,16 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
 
 
 # ==============================================================================
-# PÁGINA NUEVA 3: TELEMETRÍA DE TRÁFICO (PVS) - ¡LA QUE PEDISTE!
+# PÁGINA NUEVA 3: TELEMETRÍA DE TRÁFICO (PVS) - ¡CON FILTRO DE RANGO!
 # ==============================================================================
 elif pagina == "🚦 Telemetría de Tráfico (PVS)":
-    st.markdown("## 🚦 TELEMETRÍA DE TRÁFICO DE PACIENTES NUEVOS (PVS)")
-    st.info("Gestión de Primeras Visitas (PVS) con Meta Dual: Días Valle (Lun-Jue) vs Días Pico (Vie-Sab).")
+    st.markdown("## 🚦 TELEMETRÍA DE TRÁFICO (PVS) - ZOOM DINÁMICO")
+    st.info("Gestión de Primeras Visitas. Usa el filtro de Rango de Fechas para hacer Zoom en el gráfico.")
 
     # 1. Cargar y Cruzar Datos (Igual que arriba)
     df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
     df_maestro = cargar_datos_maestros(usar_demo)
     
-    # --- SISTEMA DE SEGURIDAD (FIX ERROR DE MERGE) ---
     if 'Sucursal_Upper' not in df_maestro.columns and 'Sucursal' in df_maestro.columns:
         df_maestro['Sucursal_Upper'] = df_maestro['Sucursal'].astype(str).str.upper().str.strip()
 
@@ -662,21 +661,46 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
         df_full['DiaNum'] = df_full['Fecha'].dt.dayofweek
         df_full['Dia'] = df_full['DiaNum'].map(dias_es)
 
-        # 2. Filtros
-        with st.expander("🔎 FILTROS (Igual que en Eficacia)", expanded=True):
-            f1, f2, f3, f4 = st.columns(4)
-            sel_years = f1.multiselect("📅 AÑOS", sorted(df_full['Año'].unique(), reverse=True))
-            sel_zona = f2.multiselect("📍 ZONA", sorted(df_full['ZONA'].unique()))
-            sel_red = f3.multiselect("🏢 RED", sorted(df_full['RED'].unique()))
-            sel_mes = f4.multiselect("📆 MESES", df_full[['MesNum', 'Mes']].drop_duplicates().sort_values('MesNum')['Mes'].tolist())
+        # 2. FILTROS + RANGO DE FECHAS (NUEVO!)
+        with st.expander("🔎 FILTROS Y RANGO DE TIEMPO", expanded=True):
+            f_rango, f1, f2, f3 = st.columns([2, 1, 1, 1])
+            
+            # Filtro Rango de Fechas (Default: Últimos 90 días para que no cargue todo)
+            min_date = df_full['Fecha'].min().date()
+            max_date = df_full['Fecha'].max().date()
+            default_start = max_date - datetime.timedelta(days=90)
+            
+            rango_fechas = f_rango.date_input(
+                "📅 Rango de Zoom (Desde - Hasta)",
+                [default_start, max_date],
+                min_value=min_date,
+                max_value=max_date
+            )
+            
+            # Filtros Categóricos
+            sel_zona = f1.multiselect("📍 ZONA", sorted(df_full['ZONA'].unique()))
+            sel_red = f2.multiselect("🏢 RED", sorted(df_full['RED'].unique()))
+            # El filtro de mes se vuelve redundante con el rango, pero lo dejamos por si acaso
+            # sel_mes = f3.multiselect("📆 MESES", ...) 
         
+        # Aplicamos Filtros
         df_filtrado = df_full.copy()
-        if sel_years: df_filtrado = df_filtrado[df_filtrado['Año'].isin(sel_years)]
+        
+        # Filtro de Rango (Solo si hay 2 fechas seleccionadas)
+        if isinstance(rango_fechas, tuple) and len(rango_fechas) == 2:
+            start_d, end_d = rango_fechas
+            df_filtrado = df_filtrado[
+                (df_filtrado['Fecha'].dt.date >= start_d) & 
+                (df_filtrado['Fecha'].dt.date <= end_d)
+            ]
+        elif isinstance(rango_fechas, tuple) and len(rango_fechas) == 1:
+             st.warning("Selecciona la fecha final del rango.")
+             st.stop()
+
         if sel_zona: df_filtrado = df_filtrado[df_filtrado['ZONA'].isin(sel_zona)]
         if sel_red: df_filtrado = df_filtrado[df_filtrado['RED'].isin(sel_red)]
-        if sel_mes: df_filtrado = df_filtrado[df_filtrado['Mes'].isin(sel_mes)]
         
-        if df_filtrado.empty: st.warning("Sin datos."); st.stop()
+        if df_filtrado.empty: st.warning("Sin datos en este rango."); st.stop()
 
         st.markdown("---")
 
@@ -690,45 +714,27 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
             meta_finde = st.number_input("Meta Viernes y Sábados (PVS/Día):", min_value=1, value=25)
             
         # 4. CÁLCULO DE CUMPLIMIENTO (DÍA A DÍA)
-        # Asignamos la meta teórica a cada fila según el día de la semana
-        # 0=Lunes, 3=Jueves -> Meta Semana. 4=Viernes, 5=Sabado, 6=Domingo -> Meta Finde
         df_filtrado['Meta_Dia'] = np.where(df_filtrado['DiaNum'] <= 3, meta_semana, meta_finde)
-        df_filtrado['Delta_PVS'] = df_filtrado['Primeras_Visitas'] - df_filtrado['Meta_Dia']
-        df_filtrado['Cumple_Dia'] = df_filtrado['Primeras_Visitas'] >= df_filtrado['Meta_Dia']
-
-        # KPI Resumen
-        total_pvs = df_filtrado['Primeras_Visitas'].sum()
-        total_meta = df_filtrado['Meta_Dia'].sum()
-        gap = total_pvs - total_meta
-        pct_cumplimiento = (total_pvs / total_meta) * 100 if total_meta > 0 else 0
         
-        with col_kpi:
-            k1, k2 = st.columns(2)
-            k1.metric("TOTAL PVS (Pacientes Nuevos)", f"{total_pvs:,.0f}", f"Meta Acumulada: {total_meta:,.0f}")
-            k2.metric("CUMPLIMIENTO GLOBAL", f"{pct_cumplimiento:.1f}%", f"{gap:+,.0f} Pacientes (Saldo)")
-
-        st.markdown("---")
-
         # 5. GRÁFICOS (EVOLUCIÓN DIARIA + PROMEDIO DÍA SEMANA)
-        st.subheader("📈 Evolución Diaria (Línea de Tiempo)")
+        st.subheader("📈 Evolución Diaria (Promedio por Clínica)")
         
-        # Gráfico 1: Evolución Diaria (Timeline) - Para ver los picos y valles
-        # Agrupamos por fecha exacta para ver la serie temporal
+        # Gráfico 1: Timeline NORMALIZADO (USANDO MEAN, NO SUM)
         df_timeline = df_filtrado.groupby('Fecha').agg({
-            'Primeras_Visitas': 'sum', # Sumamos PVS de todas las sedes filtradas
-            'Meta_Dia': 'sum'          # Sumamos Metas de todas las sedes filtradas
+            'Primeras_Visitas': 'mean', # Promedio de todas las clínicas ese día
+            'Meta_Dia': 'mean'          # Meta promedio ese día
         }).reset_index().sort_values('Fecha')
         
         fig_evo, ax_evo = plt.subplots(figsize=(12, 4))
         fig_evo.patch.set_facecolor('#0E1117'); ax_evo.set_facecolor('#0E1117')
         
-        # PVS Real (Barras o Área)
-        ax_evo.bar(df_timeline['Fecha'], df_timeline['Primeras_Visitas'], color='#3498db', alpha=0.6, label='PVS Real')
+        # PVS Real (Promedio)
+        ax_evo.bar(df_timeline['Fecha'], df_timeline['Primeras_Visitas'], color='#3498db', alpha=0.6, label='PVS Real (Promedio)')
         
-        # Meta (Línea) - Será escalonada si filtra pocas sedes, o suave si son muchas
+        # Meta (Línea)
         ax_evo.plot(df_timeline['Fecha'], df_timeline['Meta_Dia'], color='#fcd700', linestyle='--', linewidth=2, label='Meta Objetiva')
         
-        ax_evo.set_title("PVS Real vs Meta en el Tiempo", color='white')
+        ax_evo.set_title("Desempeño Promedio Diario vs Meta", color='white')
         ax_evo.tick_params(colors='white', axis='x', rotation=45)
         ax_evo.tick_params(colors='white', axis='y')
         ax_evo.legend(facecolor='#151925', labelcolor='white')
@@ -736,27 +742,20 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
         ax_evo.spines['bottom'].set_color('white'); ax_evo.spines['left'].set_color('white')
         st.pyplot(fig_evo)
 
-        # Gráfico 2 y Tabla (Lado a Lado)
+        # Gráfico 2 y Tabla
         c_graf, c_tab = st.columns([1, 1])
         
         with c_graf:
             st.subheader("📊 PVS Promedio por Día Semana")
-            # Agrupamos por día para ver promedios
             df_dia = df_filtrado.groupby(['DiaNum', 'Dia']).agg({
                 'Primeras_Visitas': 'mean',
                 'Meta_Dia': 'mean'
             }).reset_index().sort_values('DiaNum')
             
-            # Graficamos Barras (Real) y Línea (Meta)
             fig, ax = plt.subplots(figsize=(8, 5))
             fig.patch.set_facecolor('#0E1117'); ax.set_facecolor('#0E1117')
-            
-            # Barras Reales
             ax.bar(df_dia['Dia'], df_dia['Primeras_Visitas'], color='#3498db', label='Promedio Real', alpha=0.7)
-            
-            # Línea de Meta Promedio
             ax.plot(df_dia['Dia'], df_dia['Meta_Dia'], color='#fcd700', marker='o', linestyle='--', linewidth=2, label='Meta Objetiva')
-            
             ax.set_title("Promedio PVS vs Meta (Día)", color='white')
             ax.tick_params(colors='white'); ax.legend(facecolor='#151925', labelcolor='white')
             ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
@@ -764,35 +763,25 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
             st.pyplot(fig)
             
         with c_tab:
-            st.subheader("📋 Semáforo de Gestión (PVS Diario)")
+            st.subheader("📋 Semáforo de Gestión (Promedios)")
             
-            # Agrupamos por Sucursal usando PROMEDIO (MEAN) en lugar de SUMA
-            # Esto soluciona la confusión de "Valores muy altos"
+            # Tabla basada en PROMEDIOS (MEAN)
             df_saldo = df_filtrado.groupby('Sucursal').agg({
-                'Primeras_Visitas': 'mean',  # Promedio PVS diario
-                'Meta_Dia': 'mean'           # Promedio Meta diaria
+                'Primeras_Visitas': 'mean',  
+                'Meta_Dia': 'mean'           
             }).reset_index()
             
             df_saldo['Diferencia_Dia'] = df_saldo['Primeras_Visitas'] - df_saldo['Meta_Dia']
             df_saldo['% Cumplimiento'] = (df_saldo['Primeras_Visitas'] / df_saldo['Meta_Dia']) * 100
-            
-            # Ordenamos por quien está más lejos de la meta diaria
             df_saldo = df_saldo.sort_values('% Cumplimiento', ascending=True)
             
-            # Renombramos para que el usuario entienda que es PROMEDIO
-            df_view = df_saldo.rename(columns={
-                'Primeras_Visitas': 'PVS Promedio/Día', 
-                'Meta_Dia': 'Meta Promedio/Día',
-                'Diferencia_Dia': 'Gap Diario'
-            })
-            
             st.dataframe(
-                df_view.style.format({
-                    'PVS Promedio/Día': '{:.1f}',
-                    'Meta Promedio/Día': '{:.1f}',
-                    'Gap Diario': '{:+.1f}',
+                df_saldo.style.format({
+                    'Primeras_Visitas': '{:.1f}',
+                    'Meta_Dia': '{:.1f}',
+                    'Diferencia_Dia': '{:+.1f}',
                     '% Cumplimiento': '{:.1f}%'
-                }).applymap(color_negative_red, subset=['Gap Diario'])
+                }).applymap(color_negative_red, subset=['Diferencia_Dia'])
                   .applymap(color_cumplimiento, subset=['% Cumplimiento']),
                 use_container_width=True,
                 height=400
