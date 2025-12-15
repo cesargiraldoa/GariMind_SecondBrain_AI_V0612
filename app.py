@@ -468,7 +468,7 @@ if pagina == "📊 Telemetría en Vivo":
 # ==============================================================================
 elif pagina == "🚀 Telemetría Resultados Superiores":
     st.markdown("## 🚀 TELEMETRÍA DE RESULTADOS SUPERIORES")
-    st.info("Tablero de Mando Avanzado: Filtra por Zonas/Red y analiza la Eficacia temporal.")
+    st.info("Tablero de Mando Avanzado: Filtra por Meses, Zonas, Red y analiza la Eficacia temporal.")
     
     # 1. Cargar Datos Eficacia
     df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
@@ -497,13 +497,13 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
         df_full['DiaNum'] = df_full['Fecha'].dt.dayofweek
         df_full['Dia'] = df_full['DiaNum'].map(dias_es)
 
-        # --- SECCIÓN DE FILTROS SUPERIORES ---
-        with st.expander("🔎 FILTROS DE VISUALIZACIÓN (Zonas, Red, Años)", expanded=True):
-            f1, f2, f3 = st.columns(3)
+        # --- SECCIÓN DE FILTROS SUPERIORES (4 COLUMNAS) ---
+        with st.expander("🔎 FILTROS DE VISUALIZACIÓN (Meses, Zonas, Red, Años)", expanded=True):
+            f1, f2, f3, f4 = st.columns(4)
             
             # Filtro Años
             years_avail = sorted(df_full['Año'].unique(), reverse=True)
-            sel_years = f1.multiselect("📅 AÑOS", years_avail, default=years_avail[:1]) # Por defecto el último año
+            sel_years = f1.multiselect("📅 AÑOS", years_avail, default=years_avail[:1])
             
             # Filtro Zona
             zonas_avail = sorted(df_full['ZONA'].unique())
@@ -512,12 +512,19 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
             # Filtro Red
             red_avail = sorted(df_full['RED'].unique())
             sel_red = f3.multiselect("🏢 RED", red_avail)
+
+            # Filtro Meses (Nuevo!)
+            # Ordenamos por número de mes para que aparezcan en orden lógico (Ene, Feb...)
+            meses_unicos = df_full[['MesNum', 'Mes']].drop_duplicates().sort_values('MesNum')
+            meses_avail = meses_unicos['Mes'].tolist()
+            sel_mes = f4.multiselect("📆 MESES", meses_avail)
         
         # Aplicamos Filtros
         df_filtrado = df_full.copy()
         if sel_years: df_filtrado = df_filtrado[df_filtrado['Año'].isin(sel_years)]
         if sel_zona: df_filtrado = df_filtrado[df_filtrado['ZONA'].isin(sel_zona)]
         if sel_red: df_filtrado = df_filtrado[df_filtrado['RED'].isin(sel_red)]
+        if sel_mes: df_filtrado = df_filtrado[df_filtrado['Mes'].isin(sel_mes)]
         
         if df_filtrado.empty:
             st.warning("⚠️ No hay datos con los filtros seleccionados.")
@@ -556,6 +563,36 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
             ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False); ax.spines['bottom'].set_color('white'); ax.spines['left'].set_color('white')
             st.pyplot(fig)
 
+        st.markdown("---")
+
+        # --- TABLA COMPARATIVA DETALLADA (NUEVO!) ---
+        st.subheader("📋 Detalle Comparativo: Eficacia por Clínica y Mes")
+        
+        # Agrupamos por Sucursal, Año y Mes para tener el desglose exacto
+        # Esto es vital: Sumamos primero ingresos y pacientes, LUEGO dividimos.
+        # Nunca promediamos promedios.
+        df_tabla = df_filtrado.groupby(['Sucursal', 'Año', 'Mes']).agg({
+            'Ingresos': 'sum', 
+            'Primeras_Visitas': 'sum'
+        }).reset_index()
+        
+        # Calculamos Eficacia Real
+        df_tabla['Eficacia'] = df_tabla['Ingresos'] / df_tabla['Primeras_Visitas']
+        
+        # Ordenamos
+        df_tabla = df_tabla.sort_values(['Año', 'Mes', 'Eficacia'], ascending=[False, True, False])
+        
+        # Mostramos con formato bonito
+        st.dataframe(
+            df_tabla.style.format({
+                'Ingresos': '${:,.0f}',
+                'Eficacia': '${:,.0f}',
+                'Primeras_Visitas': '{:,.0f}'
+            }).background_gradient(subset=['Eficacia'], cmap='Greens'),
+            use_container_width=True,
+            height=400
+        )
+        
         st.markdown("---")
         
         # --- VISUALIZACIONES MULTIDIMENSIONALES ---
