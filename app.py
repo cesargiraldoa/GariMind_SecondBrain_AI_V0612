@@ -372,11 +372,11 @@ with st.sidebar:
         link = generar_reporte_pmv_whatsapp(df_raw)
         st.markdown(f"""<a href="{link}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; margin-bottom: 20px;">📲 REPORTE WHATSAPP</button></a>""", unsafe_allow_html=True)
     
-    # --- MENÚ PRINCIPAL ACTUALIZADO ---
+    # --- MENÚ PRINCIPAL ACTUALIZADO (NOMBRES NUEVOS) ---
     pagina = st.radio("MENÚ PRINCIPAL", [
         "📊 Telemetría en Vivo", 
-        "🎯 Eficacia (Simulador)",       # <--- NUEVA PÁGINA 1
-        "🏢 Modelo Eficacia Total",      # <--- NUEVA PÁGINA 2
+        "🚀 Telemetría Resultados Superiores",  # <--- NOMBRE NUEVO
+        "🏢 Modelo Eficacia Total",
         "🔮 Estrategia & Predicción", 
         "🧠 Chat Gari IA"
     ])
@@ -464,54 +464,122 @@ if pagina == "📊 Telemetría en Vivo":
                 st.table(df_t[['Mes','Valor','Var','Tx']].style.format({'Valor':'${:,.0f}','Var':'{:.1f}%'}).applymap(color_negative_red, subset=['Var']))
 
 # ==============================================================================
-# PÁGINA NUEVA 1: EFICACIA (SIMULADOR DE META)
+# PÁGINA NUEVA 1: TELEMETRÍA DE RESULTADOS SUPERIORES (MULTIDIMENSIONAL)
 # ==============================================================================
-elif pagina == "🎯 Eficacia (Simulador)":
-    st.markdown("## 🎯 GESTIÓN DE METAS (SEMÁFORO)")
-    st.info("Ajusta la meta para evaluar qué clínicas (CSO) están cumpliendo el objetivo de rentabilidad por paciente.")
+elif pagina == "🚀 Telemetría Resultados Superiores":
+    st.markdown("## 🚀 TELEMETRÍA DE RESULTADOS SUPERIORES")
+    st.info("Tablero de Mando Avanzado: Filtra por Zonas/Red y analiza la Eficacia temporal.")
     
-    # Cargar datos
+    # 1. Cargar Datos Eficacia
     df_eff_glob, df_eff_cso = cargar_datos_eficacia(usar_demo)
     
-    if not df_eff_cso.empty:
-        # --- CAJA DE CONTROL DE META ---
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            st.markdown("### 🏁 OBJETIVO")
-            meta_usuario = st.number_input(
-                "Meta de Eficacia ($/Paciente):", 
-                min_value=0, value=1000000, step=50000, format="%d"
-            )
-        with c2:
-            st.warning(f"Estás evaluando quién genera más de **${meta_usuario:,.0f}** por cada paciente nuevo.")
+    # 2. Cargar Datos Maestros (Para obtener Zona/Red) y Cruzar
+    df_maestro = cargar_datos_maestros(usar_demo)
+    
+    if not df_eff_cso.empty and not df_maestro.empty:
+        # Preparamos el cruce (Merge) usando el nombre de la sucursal normalizado
+        df_eff_cso['Sucursal_Norm'] = df_eff_cso['Sucursal'].astype(str).str.strip().str.upper()
+        
+        # Extraemos solo las columnas maestras únicas (para evitar duplicados)
+        df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
+        
+        # Hacemos el cruce (Left Join)
+        df_full = df_eff_cso.merge(df_mapping, left_on='Sucursal_Norm', right_on='Sucursal_Upper', how='left')
+        
+        # Rellenamos vacíos si alguna clínica no tenía zona asignada
+        df_full['ZONA'] = df_full['ZONA'].fillna('Sin Zona')
+        df_full['RED'] = df_full['RED'].fillna('Sin Red')
+        
+        # Enriquecemos con Fechas
+        df_full['Año'] = df_full['Fecha'].dt.year
+        df_full['MesNum'] = df_full['Fecha'].dt.month
+        df_full['Mes'] = df_full['MesNum'].map(meses_es)
+        df_full['DiaNum'] = df_full['Fecha'].dt.dayofweek
+        df_full['Dia'] = df_full['DiaNum'].map(dias_es)
+
+        # --- SECCIÓN DE FILTROS SUPERIORES ---
+        with st.expander("🔎 FILTROS DE VISUALIZACIÓN (Zonas, Red, Años)", expanded=True):
+            f1, f2, f3 = st.columns(3)
+            
+            # Filtro Años
+            years_avail = sorted(df_full['Año'].unique(), reverse=True)
+            sel_years = f1.multiselect("📅 AÑOS", years_avail, default=years_avail[:1]) # Por defecto el último año
+            
+            # Filtro Zona
+            zonas_avail = sorted(df_full['ZONA'].unique())
+            sel_zona = f2.multiselect("📍 ZONA", zonas_avail)
+            
+            # Filtro Red
+            red_avail = sorted(df_full['RED'].unique())
+            sel_red = f3.multiselect("🏢 RED", red_avail)
+        
+        # Aplicamos Filtros
+        df_filtrado = df_full.copy()
+        if sel_years: df_filtrado = df_filtrado[df_filtrado['Año'].isin(sel_years)]
+        if sel_zona: df_filtrado = df_filtrado[df_filtrado['ZONA'].isin(sel_zona)]
+        if sel_red: df_filtrado = df_filtrado[df_filtrado['RED'].isin(sel_red)]
+        
+        if df_filtrado.empty:
+            st.warning("⚠️ No hay datos con los filtros seleccionados.")
+            st.stop()
 
         st.markdown("---")
 
-        # --- CÁLCULO Y GRÁFICO SEMÁFORO ---
-        ranking = df_eff_cso.groupby('Sucursal').agg({'Ingresos': 'sum', 'Primeras_Visitas': 'sum'}).reset_index()
-        ranking['Eficacia_Real'] = ranking['Ingresos'] / ranking['Primeras_Visitas']
-        ranking['Cumple'] = ranking['Eficacia_Real'] >= meta_usuario
-        ranking = ranking.sort_values('Eficacia_Real', ascending=False)
+        # --- CAJA DE META Y SEMÁFORO (EL NÚCLEO) ---
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.markdown("### 🎯 OBJETIVO")
+            meta_usuario = st.number_input(
+                "Meta Eficacia ($/Paciente):", 
+                min_value=0, value=1000000, step=50000, format="%d"
+            )
+            
+            # PYTHON ANALYSIS RÁPIDO
+            best_zona = df_filtrado.groupby('ZONA')['Ingresos'].sum().idxmax()
+            best_eficacia = (df_filtrado['Ingresos'].sum() / df_filtrado['Primeras_Visitas'].sum())
+            st.info(f"💡 **Insight:** En la selección actual, la Zona líder en volumen es **{best_zona}** y la Eficacia Promedio Real es **${best_eficacia:,.0f}**.")
+
+        with c2:
+            # Gráfico Semáforo (Ranking filtrado)
+            ranking = df_filtrado.groupby('Sucursal').agg({'Ingresos': 'sum', 'Primeras_Visitas': 'sum'}).reset_index()
+            ranking['Eficacia_Real'] = ranking['Ingresos'] / ranking['Primeras_Visitas']
+            ranking['Cumple'] = ranking['Eficacia_Real'] >= meta_usuario
+            ranking = ranking.sort_values('Eficacia_Real', ascending=False)
+            
+            fig, ax = plt.subplots(figsize=(10, 5))
+            fig.patch.set_facecolor('#0E1117'); ax.set_facecolor('#0E1117')
+            colores = ['#27ae60' if x else '#cc0000' for x in ranking['Cumple']]
+            barras = ax.bar(ranking['Sucursal'], ranking['Eficacia_Real'], color=colores, alpha=0.9)
+            ax.axhline(y=meta_usuario, color='#fcd700', linestyle='--', linewidth=2, label='Meta')
+            ax.set_title(f"Cumplimiento de Meta (Filtrado)", color='white')
+            ax.tick_params(colors='white', axis='x', rotation=90); ax.tick_params(colors='white', axis='y')
+            ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False); ax.spines['bottom'].set_color('white'); ax.spines['left'].set_color('white')
+            st.pyplot(fig)
+
+        st.markdown("---")
         
-        # Gráfico
-        fig, ax = plt.subplots(figsize=(12, 6))
-        fig.patch.set_facecolor('#0E1117'); ax.set_facecolor('#0E1117')
+        # --- VISUALIZACIONES MULTIDIMENSIONALES ---
+        st.subheader("📊 Análisis Temporal Multidimensional")
         
-        colores = ['#27ae60' if x else '#cc0000' for x in ranking['Cumple']] # Verde/Rojo
-        barras = ax.bar(ranking['Sucursal'], ranking['Eficacia_Real'], color=colores, alpha=0.9)
+        tab_y, tab_m, tab_d = st.tabs(["📅 POR AÑO", "📆 POR MES", "🗓️ POR DÍA SEMANA"])
         
-        ax.axhline(y=meta_usuario, color='#fcd700', linestyle='--', linewidth=2, label='Meta')
-        ax.set_title(f"Clínicas vs Meta (${meta_usuario:,.0f})", color='white', fontsize=14)
-        ax.bar_label(barras, fmt='${:,.0f}', padding=3, rotation=90, color='white', fontsize=8)
-        ax.tick_params(colors='white', axis='x', rotation=90); ax.tick_params(colors='white', axis='y')
-        ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False); ax.spines['bottom'].set_color('white'); ax.spines['left'].set_color('white')
-        
-        st.pyplot(fig)
-        
-        # Contador de resumen
-        cumplen = ranking['Cumple'].sum()
-        no_cumplen = len(ranking) - cumplen
-        st.caption(f"📊 RESUMEN: {cumplen} clínicas en VERDE | {no_cumplen} clínicas en ROJO")
+        with tab_y:
+            # Agrupar por Año
+            df_y = df_filtrado.groupby('Año').agg({'Ingresos':'sum', 'Primeras_Visitas':'sum'}).reset_index()
+            df_y['Eficacia'] = df_y['Ingresos'] / df_y['Primeras_Visitas']
+            st.pyplot(graficar_barras_pro(df_y, 'Año', 'Eficacia', 'Evolución Anual de Eficacia', color_barras='#3498db'))
+            
+        with tab_m:
+            # Agrupar por Mes
+            df_m = df_filtrado.groupby(['MesNum', 'Mes']).agg({'Ingresos':'sum', 'Primeras_Visitas':'sum'}).reset_index().sort_values('MesNum')
+            df_m['Eficacia'] = df_m['Ingresos'] / df_m['Primeras_Visitas']
+            st.pyplot(graficar_barras_pro(df_m, 'Mes', 'Eficacia', 'Estacionalidad Mensual (Promedio)', color_barras='#9b59b6'))
+            
+        with tab_d:
+            # Agrupar por Día
+            df_d = df_filtrado.groupby(['DiaNum', 'Dia']).agg({'Ingresos':'sum', 'Primeras_Visitas':'sum'}).reset_index().sort_values('DiaNum')
+            df_d['Eficacia'] = df_d['Ingresos'] / df_d['Primeras_Visitas']
+            st.pyplot(graficar_barras_pro(df_d, 'Dia', 'Eficacia', 'Rentabilidad por Día de la Semana', color_barras='#e67e22'))
 
 # ==============================================================================
 # PÁGINA NUEVA 2: MODELO EFICACIA TOTAL (DASHBOARD ANALÍTICO)
