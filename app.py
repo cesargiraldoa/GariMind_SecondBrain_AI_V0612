@@ -495,14 +495,11 @@ elif pagina == "🚀 Telemetría Resultados Superiores":
         df_maestro['Sucursal_Upper'] = df_maestro['Sucursal'].astype(str).str.upper().str.strip()
     
     if not df_eff_cso.empty and not df_maestro.empty:
-        # Preparamos el cruce (Merge) usando el nombre de la sucursal normalizado
         df_eff_cso['Sucursal_Norm'] = df_eff_cso['Sucursal'].astype(str).str.strip().str.upper()
         
-        # Extraemos solo las columnas maestras únicas (para evitar duplicados)
         try:
             df_mapping = df_maestro[['Sucursal_Upper', 'ZONA', 'RED']].drop_duplicates(subset=['Sucursal_Upper'])
         except KeyError:
-             # Si aún falla, forzamos columnas por defecto para no romper la app
              df_mapping = pd.DataFrame({'Sucursal_Upper': df_eff_cso['Sucursal_Norm'].unique(), 'ZONA': 'Sin Zona', 'RED': 'Sin Red'})
         
         # Hacemos el cruce (Left Join)
@@ -712,11 +709,38 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
 
         st.markdown("---")
 
-        # 5. GRÁFICOS Y TABLAS
+        # 5. GRÁFICOS (EVOLUCIÓN DIARIA + PROMEDIO DÍA SEMANA)
+        st.subheader("📈 Evolución Diaria (Línea de Tiempo)")
+        
+        # Gráfico 1: Evolución Diaria (Timeline) - Para ver los picos y valles
+        # Agrupamos por fecha exacta para ver la serie temporal
+        df_timeline = df_filtrado.groupby('Fecha').agg({
+            'Primeras_Visitas': 'sum', # Sumamos PVS de todas las sedes filtradas
+            'Meta_Dia': 'sum'          # Sumamos Metas de todas las sedes filtradas
+        }).reset_index().sort_values('Fecha')
+        
+        fig_evo, ax_evo = plt.subplots(figsize=(12, 4))
+        fig_evo.patch.set_facecolor('#0E1117'); ax_evo.set_facecolor('#0E1117')
+        
+        # PVS Real (Barras o Área)
+        ax_evo.bar(df_timeline['Fecha'], df_timeline['Primeras_Visitas'], color='#3498db', alpha=0.6, label='PVS Real')
+        
+        # Meta (Línea) - Será escalonada si filtra pocas sedes, o suave si son muchas
+        ax_evo.plot(df_timeline['Fecha'], df_timeline['Meta_Dia'], color='#fcd700', linestyle='--', linewidth=2, label='Meta Objetiva')
+        
+        ax_evo.set_title("PVS Real vs Meta en el Tiempo", color='white')
+        ax_evo.tick_params(colors='white', axis='x', rotation=45)
+        ax_evo.tick_params(colors='white', axis='y')
+        ax_evo.legend(facecolor='#151925', labelcolor='white')
+        ax_evo.spines['top'].set_visible(False); ax_evo.spines['right'].set_visible(False)
+        ax_evo.spines['bottom'].set_color('white'); ax_evo.spines['left'].set_color('white')
+        st.pyplot(fig_evo)
+
+        # Gráfico 2 y Tabla (Lado a Lado)
         c_graf, c_tab = st.columns([1, 1])
         
         with c_graf:
-            st.subheader("📊 Cumplimiento por Día de la Semana")
+            st.subheader("📊 PVS Promedio por Día Semana")
             # Agrupamos por día para ver promedios
             df_dia = df_filtrado.groupby(['DiaNum', 'Dia']).agg({
                 'Primeras_Visitas': 'mean',
@@ -733,34 +757,42 @@ elif pagina == "🚦 Telemetría de Tráfico (PVS)":
             # Línea de Meta Promedio
             ax.plot(df_dia['Dia'], df_dia['Meta_Dia'], color='#fcd700', marker='o', linestyle='--', linewidth=2, label='Meta Objetiva')
             
-            ax.set_title("Tráfico Promedio vs Meta por Día", color='white')
+            ax.set_title("Promedio PVS vs Meta (Día)", color='white')
             ax.tick_params(colors='white'); ax.legend(facecolor='#151925', labelcolor='white')
             ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
             ax.spines['bottom'].set_color('white'); ax.spines['left'].set_color('white')
             st.pyplot(fig)
             
         with c_tab:
-            st.subheader("📋 Semáforo de Gestión (Saldo de PVS)")
+            st.subheader("📋 Semáforo de Gestión (PVS Diario)")
             
-            # Agrupamos por Sucursal para ver el balance
+            # Agrupamos por Sucursal usando PROMEDIO (MEAN) en lugar de SUMA
+            # Esto soluciona la confusión de "Valores muy altos"
             df_saldo = df_filtrado.groupby('Sucursal').agg({
-                'Primeras_Visitas': 'sum',
-                'Meta_Dia': 'sum'
+                'Primeras_Visitas': 'mean',  # Promedio PVS diario
+                'Meta_Dia': 'mean'           # Promedio Meta diaria
             }).reset_index()
             
-            df_saldo['Saldo_Pacientes'] = df_saldo['Primeras_Visitas'] - df_saldo['Meta_Dia']
+            df_saldo['Diferencia_Dia'] = df_saldo['Primeras_Visitas'] - df_saldo['Meta_Dia']
             df_saldo['% Cumplimiento'] = (df_saldo['Primeras_Visitas'] / df_saldo['Meta_Dia']) * 100
             
-            # Ordenamos por quien debe más pacientes
+            # Ordenamos por quien está más lejos de la meta diaria
             df_saldo = df_saldo.sort_values('% Cumplimiento', ascending=True)
             
+            # Renombramos para que el usuario entienda que es PROMEDIO
+            df_view = df_saldo.rename(columns={
+                'Primeras_Visitas': 'PVS Promedio/Día', 
+                'Meta_Dia': 'Meta Promedio/Día',
+                'Diferencia_Dia': 'Gap Diario'
+            })
+            
             st.dataframe(
-                df_saldo.style.format({
-                    'Primeras_Visitas': '{:,.0f}',
-                    'Meta_Dia': '{:,.0f}',
-                    'Saldo_Pacientes': '{:+,.0f}',
+                df_view.style.format({
+                    'PVS Promedio/Día': '{:.1f}',
+                    'Meta Promedio/Día': '{:.1f}',
+                    'Gap Diario': '{:+.1f}',
                     '% Cumplimiento': '{:.1f}%'
-                }).applymap(color_negative_red, subset=['Saldo_Pacientes'])
+                }).applymap(color_negative_red, subset=['Gap Diario'])
                   .applymap(color_cumplimiento, subset=['% Cumplimiento']),
                 use_container_width=True,
                 height=400
